@@ -34,41 +34,23 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
-      - name: Apply app icon and app name
+      - name: Check icon format
         run: |
-          ICON_SRC=""
-          if [ -f "assets/app_icon.png" ]; then
-            ICON_SRC="assets/app_icon.png"
-          elif [ -f "app_icon.png" ]; then
-            ICON_SRC="app_icon.png"
+          if [ -f "app_icon.png" ]; then
+            file app_icon.png || true
           fi
 
-          if [ -n "$ICON_SRC" ]; then
-            IS_PNG=$(python3 -c '
-import sys
-try:
-    with open(sys.argv[1], "rb") as f:
-        print("yes" if f.read(8) == b"\x89PNG\r\n\x1a\n" else "no")
-except Exception:
-    print("no")
-' "$ICON_SRC")
-
-            if [ "$IS_PNG" = "yes" ]; then
-              rm -rf android/app/src/main/res/mipmap-anydpi-v26
-              for dir in android/app/src/main/res/mipmap-*; do
-                if [ -d "$dir" ]; then
-                  cp "$ICON_SRC" "$dir/ic_launcher.png"
-                  cp "$ICON_SRC" "$dir/ic_launcher_round.png"
-                  cp "$ICON_SRC" "$dir/ic_launcher_foreground.png"
-                fi
-              done
-            else
-              echo "Warning: $ICON_SRC is not a raw PNG file; keeping default launcher icons so resource compilation succeeds."
-            fi
-          fi
-
+      - name: Set app label
+        run: |
           if [ -f "android/app/src/main/AndroidManifest.xml" ]; then
-            sed -i 's/android:label="[^"]*"/android:label="BINGWA DATA SWIFT"/g' android/app/src/main/AndroidManifest.xml
+            python3 -c '
+          from pathlib import Path
+          p = Path("android/app/src/main/AndroidManifest.xml")
+          txt = p.read_text(encoding="utf-8")
+          import re
+          txt = re.sub(r'\''android:label="[^"]*"'\'', '\''android:label="BINGWA DATA SWIFT"'\'', txt)
+          p.write_text(txt, encoding="utf-8")
+          '
           fi
 
       - name: Build release APK
