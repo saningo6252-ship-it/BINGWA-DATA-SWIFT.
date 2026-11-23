@@ -17,130 +17,45 @@ jobs:
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '17'
+          distribution: temurin
+          java-version: "17"
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.0'
-          channel: 'stable'
+          channel: stable
 
-      - name: Ensure Android Gradle structure
-        run: flutter create --platforms=android --project-name bingwa_data_swift .
-
-      - name: Configure Kotlin 2.0.20 and SDK 34
-        run: |
-          python3 - <<'PY'
-          import os, re
-
-          kotlin_ver = "2.0.20"
-
-          for root, _, files in os.walk("android"):
-              for fname in files:
-                  if fname in ("build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts", "gradle.properties"):
-                      fpath = os.path.join(root, fname)
-                      with open(fpath, "r", encoding="utf-8") as f:
-                          txt = f.read()
-                      orig = txt
-
-                      txt = re.sub(
-                          r'(org\.jetbrains\.kotlin\.android["\']?\s*(?:version)?\s*[:=]?\s*["\'])[0-9.]+(["\'])',
-                          rf'\g<1>{kotlin_ver}\g<2>',
-                          txt,
-                      )
-                      txt = re.sub(
-                          r'(org\.jetbrains\.kotlin["\']?\s*(?:version)?\s*[:=]?\s*["\'])[0-9.]+(["\'])',
-                          rf'\g<1>{kotlin_ver}\g<2>',
-                          txt,
-                      )
-                      txt = re.sub(
-                          r"((?:ext\.)?kotlin_version\s*=\s*['\"])[0-9.]+(['\"])",
-                          rf"\g<1>{kotlin_ver}\g<2>",
-                          txt,
-                      )
-                      txt = re.sub(
-                          r"(kotlinVersion\s*=\s*['\"])[0-9.]+(['\"])",
-                          rf"\g<1>{kotlin_ver}\g<2>",
-                          txt,
-                      )
-                      txt = re.sub(
-                          r"\bcompileSdk\s*=?\s*(?:flutter\.compileSdkVersion|\d+)",
-                          "compileSdk = 34",
-                          txt,
-                      )
-                      txt = re.sub(
-                          r"\bcompileSdkVersion\s+(?:flutter\.compileSdkVersion|\d+)",
-                          "compileSdkVersion 34",
-                          txt,
-                      )
-                      txt = re.sub(
-                          r"\btargetSdk\s*=?\s*(?:flutter\.targetSdkVersion|\d+)",
-                          "targetSdk = 34",
-                          txt,
-                      )
-                      txt = re.sub(
-                          r"\btargetSdkVersion\s+(?:flutter\.targetSdkVersion|\d+)",
-                          "targetSdkVersion 34",
-                          txt,
-                      )
-
-                      if txt != orig:
-                          with open(fpath, "w", encoding="utf-8") as f:
-                              f.write(txt)
-                          print("Updated:", fpath)
-
-          bg = "android/build.gradle"
-          if os.path.exists(bg):
-              with open(bg, "r", encoding="utf-8") as f:
-                  b = f.read()
-              if "kotlin_version" not in b:
-                  b = f"buildscript {{\n    ext.kotlin_version = '{kotlin_ver}'\n}}\n" + b
-                  with open(bg, "w", encoding="utf-8") as f:
-                      f.write(b)
-          PY
-
-      - name: Set App Name and Apply Custom Icon
-        run: |
-          python3 - <<'PY'
-          import os, re, shutil, subprocess
-
-          manifest_path = "android/app/src/main/AndroidManifest.xml"
-          if os.path.exists(manifest_path):
-              with open(manifest_path, "r", encoding="utf-8") as f:
-                  content = f.read()
-              content = re.sub(r'android:label="[^"]*"', 'android:label="BINGWA DATA SWIFT"', content)
-              with open(manifest_path, "w", encoding="utf-8") as f:
-                  f.write(content)
-
-          anydpi_dir = "android/app/src/main/mipmap-anydpi-v26"
-          if os.path.isdir(anydpi_dir):
-              shutil.rmtree(anydpi_dir)
-
-          src_icon = "assets/app_icon.png"
-          densities = [
-              "mipmap-mdpi",
-              "mipmap-hdpi",
-              "mipmap-xhdpi",
-              "mipmap-xxhdpi",
-              "mipmap-xxxhdpi",
-          ]
-          if os.path.exists(src_icon):
-              for folder in densities:
-                  out_dir = os.path.join("android/app/src/main", folder)
-                  os.makedirs(out_dir, exist_ok=True)
-                  for name in ["ic_launcher.png", "ic_launcher_round.png", "ic_launcher_foreground.png"]:
-                      dst = os.path.join(out_dir, name)
-                      subprocess.run(["cp", src_icon, dst], check=True)
-          PY
-
-      - name: Install dependencies
+      - name: Get dependencies
         run: flutter pub get
+
+      - name: Apply app icon and app name
+        run: |
+          ICON_SRC=""
+          if [ -f "assets/app_icon.png" ]; then
+            ICON_SRC="assets/app_icon.png"
+          elif [ -f "app_icon.png" ]; then
+            ICON_SRC="app_icon.png"
+          fi
+
+          if [ -n "$ICON_SRC" ]; then
+            rm -rf android/app/src/main/res/mipmap-anydpi-v26
+            for dir in android/app/src/main/res/mipmap-*; do
+              if [ -d "$dir" ]; then
+                cp "$ICON_SRC" "$dir/ic_launcher.png"
+                cp "$ICON_SRC" "$dir/ic_launcher_round.png"
+                cp "$ICON_SRC" "$dir/ic_launcher_foreground.png"
+              fi
+            done
+          fi
+
+          if [ -f "android/app/src/main/AndroidManifest.xml" ]; then
+            sed -i 's/android:label="[^"]*"/android:label="BINGWA DATA SWIFT"/g' android/app/src/main/AndroidManifest.xml
+          fi
 
       - name: Build release APK
         run: flutter build apk --release
 
-      - name: Upload APK artifact
+      - name: Upload release APK
         uses: actions/upload-artifact@v4
         with:
           name: bingwa-data-swift-release-apk
