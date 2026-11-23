@@ -44,14 +44,27 @@ jobs:
           fi
 
           if [ -n "$ICON_SRC" ]; then
-            rm -rf android/app/src/main/res/mipmap-anydpi-v26
-            for dir in android/app/src/main/res/mipmap-*; do
-              if [ -d "$dir" ]; then
-                cp "$ICON_SRC" "$dir/ic_launcher.png"
-                cp "$ICON_SRC" "$dir/ic_launcher_round.png"
-                cp "$ICON_SRC" "$dir/ic_launcher_foreground.png"
-              fi
-            done
+            IS_PNG=$(python3 -c '
+import sys
+try:
+    with open(sys.argv[1], "rb") as f:
+        print("yes" if f.read(8) == b"\x89PNG\r\n\x1a\n" else "no")
+except Exception:
+    print("no")
+' "$ICON_SRC")
+
+            if [ "$IS_PNG" = "yes" ]; then
+              rm -rf android/app/src/main/res/mipmap-anydpi-v26
+              for dir in android/app/src/main/res/mipmap-*; do
+                if [ -d "$dir" ]; then
+                  cp "$ICON_SRC" "$dir/ic_launcher.png"
+                  cp "$ICON_SRC" "$dir/ic_launcher_round.png"
+                  cp "$ICON_SRC" "$dir/ic_launcher_foreground.png"
+                fi
+              done
+            else
+              echo "Warning: $ICON_SRC is not a raw PNG file; keeping default launcher icons so resource compilation succeeds."
+            fi
           fi
 
           if [ -f "android/app/src/main/AndroidManifest.xml" ]; then
