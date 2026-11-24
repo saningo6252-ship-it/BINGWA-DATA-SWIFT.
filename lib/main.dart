@@ -7,6 +7,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'mpesa_service.dart';
+
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setSystemUIOverlayStyle(
@@ -1569,6 +1571,7 @@ class _BuyConfirmScreenState extends State<BuyConfirmScreen> {
   final _recipientCtrl = TextEditingController();
   final _paymentCtrl = TextEditingController();
   final _amountCtrl = TextEditingController();
+  bool _isSending = false;
   String _statusMsg = '';
 
   @override
@@ -1602,7 +1605,8 @@ class _BuyConfirmScreenState extends State<BuyConfirmScreen> {
     return null;
   }
 
-  void _confirmAndPay() {
+  Future<void> _confirmAndPay() async {
+    if (_isSending) return;
     if (!widget.storeOpen) {
       setState(() => _statusMsg = 'Store is currently closed. Orders are disabled.');
       return;
@@ -1611,26 +1615,68 @@ class _BuyConfirmScreenState extends State<BuyConfirmScreen> {
 
     final amount = int.parse(_amountCtrl.text.trim());
     final orderId = 'ORD-${DateTime.now().millisecondsSinceEpoch}';
-
-    widget.onRecordStkAttempt(
-      OrderRecord(
-        orderId: orderId,
-        network: widget.offer.network,
-        bundleName: widget.offer.name,
-        recipientPhone: _recipientCtrl.text.trim(),
-        paymentPhone: _paymentCtrl.text.trim(),
-        amountKes: amount,
-        paymentRef: 'Awaiting Daraja Callback',
-        dateLabel: 'Just now',
-        paymentStatus: 'Pending Callback Verification',
-        deliveryStatus: 'Waiting Provider Confirmation',
-      ),
-    );
+    final recipient = _recipientCtrl.text.trim();
+    final paymentPhone = _paymentCtrl.text.trim();
 
     setState(() {
-      _statusMsg =
-          'STK Push request logged ($orderId). Connect the Daraja backend to verify callback before confirming delivery.';
+      _isSending = true;
+      _statusMsg = 'Sending M-Pesa STK Push prompt...';
     });
+
+    try {
+      final response = await MpesaService.sendStkPush(
+        phone: paymentPhone,
+        amount: amount,
+        orderId: orderId,
+      );
+
+      final stkMap = response['stk'] is Map ? response['stk'] as Map : <dynamic, dynamic>{};
+      final checkoutId = stkMap['CheckoutRequestID']?.toString() ?? 'Awaiting Daraja Callback';
+      final customerMsg = stkMap['CustomerMessage']?.toString() ??
+          'STK Push sent. Enter your M-Pesa PIN on your phone.';
+
+      widget.onRecordStkAttempt(
+        OrderRecord(
+          orderId: orderId,
+          network: widget.offer.network,
+          bundleName: widget.offer.name,
+          recipientPhone: recipient,
+          paymentPhone: paymentPhone,
+          amountKes: amount,
+          paymentRef: checkoutId,
+          dateLabel: 'Just now',
+          paymentStatus: 'STK Prompt Sent - Awaiting Callback',
+          deliveryStatus: 'Waiting Payment Confirmation',
+        ),
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _isSending = false;
+        _statusMsg = '$customerMsg ($orderId)';
+      });
+    } catch (e) {
+      widget.onRecordStkAttempt(
+        OrderRecord(
+          orderId: orderId,
+          network: widget.offer.network,
+          bundleName: widget.offer.name,
+          recipientPhone: recipient,
+          paymentPhone: paymentPhone,
+          amountKes: amount,
+          paymentRef: 'STK Request Failed',
+          dateLabel: 'Just now',
+          paymentStatus: 'Failed to Initiate STK Push',
+          deliveryStatus: 'Not Sent',
+        ),
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _isSending = false;
+        _statusMsg = 'Error: ${e.toString().replaceFirst('Exception: ', '')}';
+      });
+    }
   }
 
   @override
@@ -1708,8 +1754,8 @@ class _BuyConfirmScreenState extends State<BuyConfirmScreen> {
                 width: double.infinity,
                 height: 48,
                 child: ElevatedButton(
-                  onPressed: _confirmAndPay,
-                  child: const Text('Confirm & Pay'),
+                  onPressed: _isSending ? null : _confirmAndPay,
+                  child: Text(_isSending ? 'Sending STK Push...' : 'Confirm & Pay'),
                 ),
               ),
               if (_statusMsg.isNotEmpty) ...[
@@ -1718,12 +1764,12 @@ class _BuyConfirmScreenState extends State<BuyConfirmScreen> {
                   width: double.infinity,
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
-                    color: BDSColors.amberBg,
+                    color: BDSColors.softGreenBg,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
                     _statusMsg,
-                    style: const TextStyle(color: BDSColors.amberText),
+                    style: const TextStyle(color: BDSColors.blackText),
                   ),
                 ),
               ],
