@@ -70,23 +70,49 @@ jobs:
                   kotlin.write_text(txt, encoding="utf-8")
           '
 
-      - name: Get dependencies
-        run: flutter pub get
-
-      - name: Check icon format
+      - name: Apply app_icon.png to Android launcher mipmaps
         run: |
           if [ -f "app_icon.png" ]; then
-            file app_icon.png || true
+            python3 -c '
+          from pathlib import Path
+          import shutil
+
+          src = Path("app_icon.png")
+          sizes = {
+              "mipmap-mdpi": 48,
+              "mipmap-hdpi": 72,
+              "mipmap-xhdpi": 96,
+              "mipmap-xxhdpi": 144,
+              "mipmap-xxxhdpi": 192,
+          }
+
+          try:
+              from PIL import Image
+              img = Image.open(src).convert("RGBA")
+              for folder, px in sizes.items():
+                  out_dir = Path("android/app/src/main/res") / folder
+                  out_dir.mkdir(parents=True, exist_ok=True)
+                  resized = img.resize((px, px), Image.Resampling.LANCZOS)
+                  resized.save(out_dir / "ic_launcher.png")
+          except Exception:
+              for folder in sizes:
+                  out_dir = Path("android/app/src/main/res") / folder
+                  out_dir.mkdir(parents=True, exist_ok=True)
+                  shutil.copyfile(src, out_dir / "ic_launcher.png")
+          '
           fi
+
+      - name: Get dependencies
+        run: flutter pub get
 
       - name: Set app label
         run: |
           if [ -f "android/app/src/main/AndroidManifest.xml" ]; then
             python3 -c '
           from pathlib import Path
+          import re
           p = Path("android/app/src/main/AndroidManifest.xml")
           txt = p.read_text(encoding="utf-8")
-          import re
           txt = re.sub(r'\''android:label="[^"]*"'\'', '\''android:label="BINGWA DATA SWIFT"'\'', txt)
           p.write_text(txt, encoding="utf-8")
           '
