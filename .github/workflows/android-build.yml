@@ -73,9 +73,9 @@ jobs:
       - name: Apply app_icon.png as valid PNGs to Android launcher mipmaps
         run: |
           if [ -f "app_icon.png" ]; then
+            python3 -m pip install --break-system-packages -q Pillow || true
             python3 -c '
           from pathlib import Path
-          import subprocess
 
           src = Path("app_icon.png")
           sizes = {
@@ -86,7 +86,6 @@ jobs:
               "mipmap-xxxhdpi": 192,
           }
 
-          converted_any = False
           try:
               from PIL import Image
               with Image.open(src) as im:
@@ -96,22 +95,9 @@ jobs:
                       out_dir.mkdir(parents=True, exist_ok=True)
                       resized = rgba.resize((px, px), Image.Resampling.LANCZOS)
                       resized.save(out_dir / "ic_launcher.png", format="PNG")
-                  converted_any = True
-          except Exception:
-              converted_any = False
-
-          if not converted_any:
-              for folder, px in sizes.items():
-                  out_dir = Path("android/app/src/main/res") / folder
-                  out_dir.mkdir(parents=True, exist_ok=True)
-                  out_file = out_dir / "ic_launcher.png"
-                  res = subprocess.run(
-                      ["ffmpeg", "-y", "-i", str(src), "-vf", f"scale={px}:{px}", str(out_file)],
-                      stdout=subprocess.DEVNULL,
-                      stderr=subprocess.DEVNULL,
-                  )
-                  if res.returncode != 0:
-                      print(f"Skipping {folder}: could not convert {src} to valid PNG")
+              print("Successfully generated mipmap launcher icons from app_icon.png")
+          except Exception as e:
+              print(f"Could not convert app_icon.png ({e}); keeping default Flutter launcher icons.")
           '
           fi
 
