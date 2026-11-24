@@ -208,6 +208,41 @@ class Catalogue68 {
   ];
 }
 
+class LegalContent {
+  static const String privacyPolicy = '''
+1. Information We Collect & Use
+Bingwa Data Swift collects only the details needed to provide bundle ordering, account access, and customer support—such as your name, phone number, selected recipient number, and order history entries.
+
+2. Profile Photos & Device Permissions
+• Photo Gallery: Accessed only when you choose to upload or change your profile picture.
+• Phone & External Links: Used only when you initiate a support call, open WhatsApp, or share a download link.
+• Security Credentials: API secrets and payment keys are never embedded inside the app; payment processing relies on secure backend verification.
+
+3. Data Storage & Retention
+Order logs and account details shown in the app are kept for session and transaction tracking. You can clear session order history from the History screen or clear app storage from your Android device settings.
+
+4. Third-Party Services & Updates
+When you open WhatsApp, phone calls, or external links, those services operate under their own privacy policies. We may update this Privacy Policy periodically as the app evolves.
+''';
+
+  static const String termsAndConditions = '''
+1. Acceptance of Terms
+By accessing or using Bingwa Data Swift, you agree to these Terms and Conditions and all applicable laws and telecommunications rules in Kenya.
+
+2. Offers, Pricing & Validity
+Bundle options, prices in KES, categories, and validity periods (such as 1Hr, 24Hrs, 7Days, 30Days, or No Expiry) are subject to availability, promotional windows, and carrier terms. The admin may add, hide, edit, or remove offers and promotions as needed.
+
+3. Payments & Recipient Accuracy
+Orders are initiated via M-Pesa STK Push and are subject to payment callback confirmation and network processing. Always verify the recipient phone number, payment phone number, and amount before confirming payment. Incorrect recipient numbers or delayed carrier callbacks may affect delivery.
+
+4. Acceptable Use
+You agree not to misuse the app, attempt unauthorized access to admin controls, submit false or fraudulent requests, interfere with app operation, or copy/distribute app assets unlawfully.
+
+5. Store Availability & Limitation of Liability
+The store may temporarily pause orders during maintenance or when closed. To the fullest extent permitted by law, Bingwa Data Swift is provided on an "as available" basis and is not liable for indirect losses, carrier downtime, network congestion, or user-entered errors.
+''';
+}
+
 String _normalizePhone(String input) {
   final digits = input.replaceAll(RegExp(r'\D'), '');
   if (digits.startsWith('254') && digits.length == 12) {
@@ -1804,19 +1839,36 @@ class AccountScreen extends StatelessWidget {
   void _showLegalSheet(BuildContext context, String title, String body) {
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       backgroundColor: BDSColors.pureWhite,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (_) => Padding(
-        padding: const EdgeInsets.all(20),
-        child: SingleChildScrollView(
+      builder: (_) => FractionallySizedBox(
+        heightFactor: 0.78,
+        child: Padding(
+          padding: const EdgeInsets.all(20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w500)),
+              const Divider(height: 20),
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Text(
+                    body,
+                    style: const TextStyle(color: BDSColors.greyText, height: 1.55),
+                  ),
+                ),
+              ),
               const SizedBox(height: 12),
-              Text(body, style: const TextStyle(color: BDSColors.greyText, height: 1.5)),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Close'),
+                ),
+              ),
             ],
           ),
         ),
@@ -1902,12 +1954,12 @@ class AccountScreen extends StatelessWidget {
           const Divider(height: 28),
           ListTile(
             contentPadding: EdgeInsets.zero,
-            title: const Text('Policy Privacy'),
+            title: const Text('Privacy Policy'),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => _showLegalSheet(
               context,
-              'Policy Privacy',
-              'Bingwa Data Swift uses only the information required to manage your account and process bundle requests. Payment credentials and API secrets are stored exclusively on the backend server and never inside the mobile app.',
+              'Privacy Policy',
+              LegalContent.privacyPolicy,
             ),
           ),
           ListTile(
@@ -1917,7 +1969,7 @@ class AccountScreen extends StatelessWidget {
             onTap: () => _showLegalSheet(
               context,
               'Terms and Conditions',
-              'Orders are initiated through M-Pesa STK Push. Check the recipient phone number, bundle details, and validity period before confirming payment. Fulfillment depends on payment callback verification and network processing.',
+              LegalContent.termsAndConditions,
             ),
           ),
           if (isAdmin && onOpenAdmin != null) ...[
