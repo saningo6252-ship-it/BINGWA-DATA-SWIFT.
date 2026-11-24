@@ -1,8 +1,10 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 void main() {
@@ -83,20 +85,66 @@ class OfferModel {
       isVisible: isVisible ?? this.isVisible,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'network': network,
+        'name': name,
+        'priceLabel': priceLabel,
+        'fixedPriceKes': fixedPriceKes,
+        'minKes': minKes,
+        'maxKes': maxKes,
+        'validity': validity,
+        'category': category,
+        'isVisible': isVisible,
+      };
+
+  factory OfferModel.fromJson(Map<String, dynamic> json) => OfferModel(
+        id: json['id'] as String? ?? 'offer_${DateTime.now().millisecondsSinceEpoch}',
+        network: json['network'] as String? ?? 'SAFARICOM',
+        name: json['name'] as String? ?? 'Offer',
+        priceLabel: json['priceLabel'] as String? ?? 'KES 10',
+        fixedPriceKes: (json['fixedPriceKes'] as num?)?.toInt(),
+        minKes: (json['minKes'] as num?)?.toInt(),
+        maxKes: (json['maxKes'] as num?)?.toInt(),
+        validity: json['validity'] as String? ?? '24Hrs',
+        category: json['category'] as String? ?? 'DATA',
+        isVisible: json['isVisible'] as bool? ?? true,
+      );
 }
 
 class AdItem {
   final String id;
   final String title;
   final String subtitle;
-  final IconData icon;
+  final int iconCodePoint;
 
   const AdItem({
     required this.id,
     required this.title,
     required this.subtitle,
-    required this.icon,
+    this.iconCodePoint = 0xe0e8, // Icons.bolt
   });
+
+  IconData get icon {
+    if (iconCodePoint == 0xe6e7) return Icons.wifi_tethering;
+    if (iconCodePoint == 0xe126) return Icons.campaign;
+    return Icons.bolt;
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'title': title,
+        'subtitle': subtitle,
+        'iconCodePoint': iconCodePoint,
+      };
+
+  factory AdItem.fromJson(Map<String, dynamic> json) => AdItem(
+        id: json['id'] as String? ?? 'ad_${DateTime.now().millisecondsSinceEpoch}',
+        title: json['title'] as String? ?? 'Promotion',
+        subtitle: json['subtitle'] as String? ?? '',
+        iconCodePoint: (json['iconCodePoint'] as num?)?.toInt() ?? 0xe0e8,
+      );
 }
 
 class OrderRecord {
@@ -123,6 +171,32 @@ class OrderRecord {
     required this.paymentStatus,
     required this.deliveryStatus,
   });
+
+  Map<String, dynamic> toJson() => {
+        'orderId': orderId,
+        'network': network,
+        'bundleName': bundleName,
+        'recipientPhone': recipientPhone,
+        'paymentPhone': paymentPhone,
+        'amountKes': amountKes,
+        'paymentRef': paymentRef,
+        'dateLabel': dateLabel,
+        'paymentStatus': paymentStatus,
+        'deliveryStatus': deliveryStatus,
+      };
+
+  factory OrderRecord.fromJson(Map<String, dynamic> json) => OrderRecord(
+        orderId: json['orderId'] as String? ?? 'ORD-000',
+        network: json['network'] as String? ?? 'SAFARICOM',
+        bundleName: json['bundleName'] as String? ?? 'Bundle',
+        recipientPhone: json['recipientPhone'] as String? ?? '',
+        paymentPhone: json['paymentPhone'] as String? ?? '',
+        amountKes: (json['amountKes'] as num?)?.toInt() ?? 0,
+        paymentRef: json['paymentRef'] as String? ?? '',
+        dateLabel: json['dateLabel'] as String? ?? '',
+        paymentStatus: json['paymentStatus'] as String? ?? '',
+        deliveryStatus: json['deliveryStatus'] as String? ?? '',
+      );
 }
 
 class Catalogue68 {
@@ -219,7 +293,7 @@ Bingwa Data Swift collects only the details needed to provide bundle ordering, a
 • Security Credentials: API secrets and payment keys are never embedded inside the app; payment processing relies on secure backend verification.
 
 3. Data Storage & Retention
-Order logs and account details shown in the app are kept for session and transaction tracking. You can clear session order history from the History screen or clear app storage from your Android device settings.
+Order logs and account details shown in the app are kept for session and transaction tracking. You can clear order history from the History screen or clear app storage from your Android device settings.
 
 4. Third-Party Services & Updates
 When you open WhatsApp, phone calls, or external links, those services operate under their own privacy policies. We may update this Privacy Policy periodically as the app evolves.
@@ -337,6 +411,12 @@ class BingwaDataSwiftApp extends StatefulWidget {
 }
 
 class _BingwaDataSwiftAppState extends State<BingwaDataSwiftApp> {
+  static const String _kOffersKey = 'bds_saved_offers_v1';
+  static const String _kAdsKey = 'bds_saved_ads_v1';
+  static const String _kOrdersKey = 'bds_saved_orders_v1';
+  static const String _kStoreOpenKey = 'bds_store_open_v1';
+  static const String _kProfilePhotoKey = 'bds_profile_photo_v1';
+
   bool _showSplash = true;
   bool _isAuthenticated = false;
   bool _isAdmin = false;
@@ -352,25 +432,99 @@ class _BingwaDataSwiftAppState extends State<BingwaDataSwiftApp> {
       id: 'ad_1',
       title: 'Fast Data & Minutes Across Networks',
       subtitle: 'Instant M-Pesa STK Push checkout with clear bundle details.',
-      icon: Icons.bolt,
+      iconCodePoint: 0xe0e8,
     ),
     const AdItem(
       id: 'ad_2',
       title: 'Safaricom, Airtel, Telkom & Faiba',
       subtitle: 'Select your network and confirm your recipient number easily.',
-      icon: Icons.wifi_tethering,
+      iconCodePoint: 0xe6e7,
     ),
   ];
-  final List<OrderRecord> _orders = [];
+  List<OrderRecord> _orders = [];
 
   @override
   void initState() {
     super.initState();
+    _loadPersistedData();
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) {
         setState(() => _showSplash = false);
       }
     });
+  }
+
+  Future<void> _loadPersistedData() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedOffersJson = prefs.getString(_kOffersKey);
+      final savedAdsJson = prefs.getString(_kAdsKey);
+      final savedOrdersJson = prefs.getString(_kOrdersKey);
+      final savedStoreOpen = prefs.getBool(_kStoreOpenKey);
+      final savedPhoto = prefs.getString(_kProfilePhotoKey);
+
+      if (!mounted) return;
+      setState(() {
+        if (savedOffersJson != null && savedOffersJson.isNotEmpty) {
+          final decoded = jsonDecode(savedOffersJson) as List<dynamic>;
+          _offers = decoded
+              .map((e) => OfferModel.fromJson(e as Map<String, dynamic>))
+              .toList();
+        }
+        if (savedAdsJson != null && savedAdsJson.isNotEmpty) {
+          final decoded = jsonDecode(savedAdsJson) as List<dynamic>;
+          _ads = decoded
+              .map((e) => AdItem.fromJson(e as Map<String, dynamic>))
+              .toList();
+        }
+        if (savedOrdersJson != null && savedOrdersJson.isNotEmpty) {
+          final decoded = jsonDecode(savedOrdersJson) as List<dynamic>;
+          _orders = decoded
+              .map((e) => OrderRecord.fromJson(e as Map<String, dynamic>))
+              .toList();
+        }
+        if (savedStoreOpen != null) {
+          _storeOpen = savedStoreOpen;
+        }
+        if (savedPhoto != null && savedPhoto.isNotEmpty) {
+          _profilePhotoPath = savedPhoto;
+        }
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _saveOffers() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _kOffersKey,
+      jsonEncode(_offers.map((o) => o.toJson()).toList()),
+    );
+  }
+
+  Future<void> _saveAds() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _kAdsKey,
+      jsonEncode(_ads.map((a) => a.toJson()).toList()),
+    );
+  }
+
+  Future<void> _saveOrders() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _kOrdersKey,
+      jsonEncode(_orders.map((o) => o.toJson()).toList()),
+    );
+  }
+
+  Future<void> _saveStoreOpen(bool open) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kStoreOpenKey, open);
+  }
+
+  Future<void> _saveProfilePhoto(String path) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kProfilePhotoKey, path);
   }
 
   void _onLoginSuccess({
@@ -394,6 +548,7 @@ class _BingwaDataSwiftAppState extends State<BingwaDataSwiftApp> {
       _userPin = resolvedPin;
       if (profilePhotoPath != null && profilePhotoPath.isNotEmpty) {
         _profilePhotoPath = profilePhotoPath;
+        _saveProfilePhoto(profilePhotoPath);
       }
       _isAdmin = _checkIsAdmin(resolvedPhone, resolvedPin);
       _isAuthenticated = true;
@@ -453,22 +608,51 @@ class _BingwaDataSwiftAppState extends State<BingwaDataSwiftApp> {
                       _isAdmin = _checkIsAdmin(_userPhone, newPin);
                     });
                   },
-                  onUpdateProfilePhoto: (path) => setState(() => _profilePhotoPath = path),
-                  onToggleStore: (open) => setState(() => _storeOpen = open),
-                  onAddOffer: (offer) => setState(() => _offers.insert(0, offer)),
+                  onUpdateProfilePhoto: (path) {
+                    setState(() => _profilePhotoPath = path);
+                    _saveProfilePhoto(path);
+                  },
+                  onToggleStore: (open) {
+                    setState(() => _storeOpen = open);
+                    _saveStoreOpen(open);
+                  },
+                  onAddOffer: (offer) {
+                    setState(() => _offers.insert(0, offer));
+                    _saveOffers();
+                  },
                   onEditOffer: (updated) {
                     setState(() {
                       final idx = _offers.indexWhere((o) => o.id == updated.id);
                       if (idx != -1) _offers[idx] = updated;
                     });
+                    _saveOffers();
                   },
                   onDeleteOffer: (id) {
                     setState(() => _offers.removeWhere((o) => o.id == id));
+                    _saveOffers();
                   },
-                  onAddAd: (ad) => setState(() => _ads.add(ad)),
-                  onRemoveAd: (index) => setState(() => _ads.removeAt(index)),
-                  onRecordStkAttempt: (order) => setState(() => _orders.insert(0, order)),
-                  onClearOrders: () => setState(() => _orders.clear()),
+                  onResetDefaultOffers: () {
+                    setState(() {
+                      _offers = List<OfferModel>.from(Catalogue68.initialOffers);
+                    });
+                    _saveOffers();
+                  },
+                  onAddAd: (ad) {
+                    setState(() => _ads.add(ad));
+                    _saveAds();
+                  },
+                  onRemoveAd: (index) {
+                    setState(() => _ads.removeAt(index));
+                    _saveAds();
+                  },
+                  onRecordStkAttempt: (order) {
+                    setState(() => _orders.insert(0, order));
+                    _saveOrders();
+                  },
+                  onClearOrders: () {
+                    setState(() => _orders.clear());
+                    _saveOrders();
+                  },
                 ),
     );
   }
@@ -855,6 +1039,7 @@ class MainShellScreen extends StatefulWidget {
   final ValueChanged<OfferModel> onAddOffer;
   final ValueChanged<OfferModel> onEditOffer;
   final ValueChanged<String> onDeleteOffer;
+  final VoidCallback onResetDefaultOffers;
   final ValueChanged<AdItem> onAddAd;
   final ValueChanged<int> onRemoveAd;
   final ValueChanged<OrderRecord> onRecordStkAttempt;
@@ -877,6 +1062,7 @@ class MainShellScreen extends StatefulWidget {
     required this.onAddOffer,
     required this.onEditOffer,
     required this.onDeleteOffer,
+    required this.onResetDefaultOffers,
     required this.onAddAd,
     required this.onRemoveAd,
     required this.onRecordStkAttempt,
@@ -922,6 +1108,7 @@ class _MainShellScreenState extends State<MainShellScreen> {
                     context,
                     MaterialPageRoute(
                       builder: (_) => AdminDashboardScreen(
+                        adminPhone: widget.userPhone,
                         storeOpen: widget.storeOpen,
                         offers: widget.offers,
                         ads: widget.ads,
@@ -930,6 +1117,7 @@ class _MainShellScreenState extends State<MainShellScreen> {
                         onAddOffer: widget.onAddOffer,
                         onEditOffer: widget.onEditOffer,
                         onDeleteOffer: widget.onDeleteOffer,
+                        onResetDefaultOffers: widget.onResetDefaultOffers,
                         onAddAd: widget.onAddAd,
                         onRemoveAd: widget.onRemoveAd,
                       ),
@@ -1134,60 +1322,62 @@ class HomeTabScreen extends StatelessWidget {
               ),
             ],
             const SizedBox(height: 16),
-            SizedBox(
-              height: 128,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: ads.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 12),
-                itemBuilder: (context, idx) {
-                  final ad = ads[idx];
-                  return Container(
-                    width: 280,
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: BDSColors.softGreenBg,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: BDSColors.lightGreenAccent),
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 56,
-                          height: 56,
-                          decoration: BoxDecoration(
-                            color: BDSColors.pureWhite,
-                            borderRadius: BorderRadius.circular(14),
+            if (ads.isNotEmpty) ...[
+              SizedBox(
+                height: 128,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: ads.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 12),
+                  itemBuilder: (context, idx) {
+                    final ad = ads[idx];
+                    return Container(
+                      width: 280,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: BDSColors.softGreenBg,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: BDSColors.lightGreenAccent),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 56,
+                            height: 56,
+                            decoration: BoxDecoration(
+                              color: BDSColors.pureWhite,
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: Icon(ad.icon, size: 30, color: BDSColors.primaryGreen),
                           ),
-                          child: Icon(ad.icon, size: 30, color: BDSColors.primaryGreen),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                ad.title,
-                                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                ad.subtitle,
-                                maxLines: 3,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(fontSize: 12, color: BDSColors.greyText),
-                              ),
-                            ],
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  ad.title,
+                                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  ad.subtitle,
+                                  maxLines: 3,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontSize: 12, color: BDSColors.greyText),
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
-                  );
-                },
+                        ],
+                      ),
+                    );
+                  },
+                ),
               ),
-            ),
-            const SizedBox(height: 18),
+              const SizedBox(height: 18),
+            ],
             GridView.builder(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
@@ -1275,80 +1465,82 @@ class NetworkOffersScreen extends StatelessWidget {
               ),
             ),
           Expanded(
-            child: ListView.separated(
-              padding: const EdgeInsets.all(16),
-              itemCount: visibleOffers.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
-              itemBuilder: (context, index) {
-                final item = visibleOffers[index];
-                return Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: BDSColors.pureWhite,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: BDSColors.cardBorder),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.05),
-                        blurRadius: 8,
-                        offset: const Offset(0, 3),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 44,
-                        height: 44,
+            child: visibleOffers.isEmpty
+                ? const Center(child: Text('No active offers available for this network.'))
+                : ListView.separated(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: visibleOffers.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 12),
+                    itemBuilder: (context, index) {
+                      final item = visibleOffers[index];
+                      return Container(
+                        padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
-                          color: BDSColors.softGreenBg,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Icon(Icons.card_giftcard, color: BDSColors.primaryGreen),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(item.name, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
-                            const SizedBox(height: 4),
-                            Text(
-                              '${item.priceLabel}  •  ${item.validity}',
-                              style: const TextStyle(fontSize: 13, color: BDSColors.greyText),
+                          color: BDSColors.pureWhite,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: BDSColors.cardBorder),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.05),
+                              blurRadius: 8,
+                              offset: const Offset(0, 3),
                             ),
                           ],
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      OutlinedButton(
-                        onPressed: storeOpen
-                            ? () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => BuyConfirmScreen(
-                                      offer: item,
-                                      storeOpen: storeOpen,
-                                      onRecordStkAttempt: onRecordStkAttempt,
-                                    ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                color: BDSColors.softGreenBg,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Icon(Icons.card_giftcard, color: BDSColors.primaryGreen),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(item.name, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    '${item.priceLabel}  •  ${item.validity}',
+                                    style: const TextStyle(fontSize: 13, color: BDSColors.greyText),
                                   ),
-                                );
-                              }
-                            : null,
-                        style: OutlinedButton.styleFrom(
-                          backgroundColor: BDSColors.pureWhite,
-                          foregroundColor: BDSColors.primaryGreen,
-                          side: const BorderSide(color: BDSColors.primaryGreen, width: 1.4),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            OutlinedButton(
+                              onPressed: storeOpen
+                                  ? () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => BuyConfirmScreen(
+                                            offer: item,
+                                            storeOpen: storeOpen,
+                                            onRecordStkAttempt: onRecordStkAttempt,
+                                          ),
+                                        ),
+                                      );
+                                    }
+                                  : null,
+                              style: OutlinedButton.styleFrom(
+                                backgroundColor: BDSColors.pureWhite,
+                                foregroundColor: BDSColors.primaryGreen,
+                                side: const BorderSide(color: BDSColors.primaryGreen, width: 1.4),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                              child: const Text('Buy'),
+                            ),
+                          ],
                         ),
-                        child: const Text('Buy'),
-                      ),
-                    ],
+                      );
+                    },
                   ),
-                );
-              },
-            ),
           ),
         ],
       ),
@@ -1974,15 +2166,16 @@ class AccountScreen extends StatelessWidget {
           ),
           if (isAdmin && onOpenAdmin != null) ...[
             const SizedBox(height: 16),
-            OutlinedButton(
+            OutlinedButton.icon(
               onPressed: () {
                 Navigator.pop(context);
                 onOpenAdmin!();
               },
+              icon: const Icon(Icons.admin_panel_settings, color: BDSColors.primaryGreen),
               style: OutlinedButton.styleFrom(
                 side: const BorderSide(color: BDSColors.primaryGreen, width: 1.4),
               ),
-              child: const Text('Admin Dashboard', style: TextStyle(color: BDSColors.primaryGreen)),
+              label: const Text('Admin Dashboard', style: TextStyle(color: BDSColors.primaryGreen)),
             ),
           ],
           const SizedBox(height: 12),
@@ -2011,6 +2204,7 @@ class AccountScreen extends StatelessWidget {
 }
 
 class AdminDashboardScreen extends StatefulWidget {
+  final String adminPhone;
   final bool storeOpen;
   final List<OfferModel> offers;
   final List<AdItem> ads;
@@ -2019,11 +2213,13 @@ class AdminDashboardScreen extends StatefulWidget {
   final ValueChanged<OfferModel> onAddOffer;
   final ValueChanged<OfferModel> onEditOffer;
   final ValueChanged<String> onDeleteOffer;
+  final VoidCallback onResetDefaultOffers;
   final ValueChanged<AdItem> onAddAd;
   final ValueChanged<int> onRemoveAd;
 
   const AdminDashboardScreen({
     super.key,
+    required this.adminPhone,
     required this.storeOpen,
     required this.offers,
     required this.ads,
@@ -2032,6 +2228,7 @@ class AdminDashboardScreen extends StatefulWidget {
     required this.onAddOffer,
     required this.onEditOffer,
     required this.onDeleteOffer,
+    required this.onResetDefaultOffers,
     required this.onAddAd,
     required this.onRemoveAd,
   });
@@ -2042,6 +2239,7 @@ class AdminDashboardScreen extends StatefulWidget {
 
 class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   String _selectedNet = 'SAFARICOM';
+  String _filterNet = 'ALL';
   final _nameCtrl = TextEditingController();
   final _priceCtrl = TextEditingController();
   final _validityCtrl = TextEditingController();
@@ -2072,6 +2270,96 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     _priceCtrl.clear();
     _validityCtrl.clear();
     setState(() {});
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('New offer added and saved.')),
+    );
+  }
+
+  void _showEditOfferDialog(OfferModel offer) {
+    final editNameCtrl = TextEditingController(text: offer.name);
+    final editPriceCtrl = TextEditingController(
+      text: offer.fixedPriceKes?.toString() ?? '',
+    );
+    final editValidityCtrl = TextEditingController(text: offer.validity);
+    final editCategoryCtrl = TextEditingController(text: offer.category);
+    String editNetwork = offer.network;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Edit Offer'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonFormField<String>(
+                  value: editNetwork,
+                  items: const ['SAFARICOM', 'AIRTEL', 'TELKOM', 'FAIBA']
+                      .map((n) => DropdownMenuItem(value: n, child: Text(n)))
+                      .toList(),
+                  onChanged: (v) => setDialogState(() => editNetwork = v ?? offer.network),
+                  decoration: const InputDecoration(labelText: 'Network'),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: editNameCtrl,
+                  decoration: const InputDecoration(labelText: 'Bundle Name'),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: editPriceCtrl,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Fixed Price (KES)'),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: editValidityCtrl,
+                  decoration: const InputDecoration(labelText: 'Validity'),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: editCategoryCtrl,
+                  decoration: const InputDecoration(labelText: 'Category'),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                final newName = editNameCtrl.text.trim();
+                final newValidity = editValidityCtrl.text.trim();
+                final newPrice = int.tryParse(editPriceCtrl.text.trim());
+                if (newName.isEmpty || newValidity.isEmpty) return;
+
+                final updated = offer.copyWith(
+                  network: editNetwork,
+                  name: newName,
+                  priceLabel: newPrice != null ? 'KES $newPrice' : offer.priceLabel,
+                  fixedPriceKes: newPrice ?? offer.fixedPriceKes,
+                  validity: newValidity,
+                  category: editCategoryCtrl.text.trim().isEmpty
+                      ? offer.category
+                      : editCategoryCtrl.text.trim().toUpperCase(),
+                );
+                widget.onEditOffer(updated);
+                Navigator.pop(ctx);
+                setState(() {});
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Offer updated and saved.')),
+                );
+              },
+              child: const Text('Save Changes'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _confirmDelete(OfferModel offer) {
@@ -2100,6 +2388,16 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_normalizePhone(widget.adminPhone) != _normalizePhone(Catalogue68.adminPhone)) {
+      return const Scaffold(
+        body: Center(child: Text('Unauthorized access.')),
+      );
+    }
+
+    final filteredOffers = _filterNet == 'ALL'
+        ? widget.offers
+        : widget.offers.where((o) => o.network == _filterNet).toList();
+
     return Scaffold(
       backgroundColor: BDSColors.pureWhite,
       appBar: AppBar(
@@ -2146,7 +2444,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     subtitle: _adSubtitleCtrl.text.trim().isEmpty
                         ? 'Bingwa Data Swift promotion'
                         : _adSubtitleCtrl.text.trim(),
-                    icon: Icons.campaign,
+                    iconCodePoint: 0xe126,
                   ),
                 );
                 _adTitleCtrl.clear();
@@ -2196,24 +2494,72 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             controller: _validityCtrl,
             decoration: const InputDecoration(labelText: 'Validity (e.g. 24Hrs)', border: OutlineInputBorder()),
           ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _categoryCtrl,
+            decoration: const InputDecoration(labelText: 'Category (e.g. DATA, MINUTES, SMS)', border: OutlineInputBorder()),
+          ),
           const SizedBox(height: 10),
           ElevatedButton(
             onPressed: _addNewOffer,
             child: const Text('Add Offer'),
           ),
           const Divider(height: 24),
-          const Text('Manage Offers (Hide / Show / Delete)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Expanded(
+                child: Text(
+                  'Manage Offers (Edit / Hide / Delete)',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                ),
+              ),
+              TextButton(
+                onPressed: () {
+                  widget.onResetDefaultOffers();
+                  setState(() {});
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Restored default 68 offers.')),
+                  );
+                },
+                child: const Text('Reset 68', style: TextStyle(color: BDSColors.primaryGreen)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: ['ALL', 'SAFARICOM', 'AIRTEL', 'TELKOM', 'FAIBA'].map((net) {
+                return Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: ChoiceChip(
+                    label: Text(net),
+                    selected: _filterNet == net,
+                    onSelected: (_) => setState(() => _filterNet = net),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
           const SizedBox(height: 8),
-          ...widget.offers.map(
+          ...filteredOffers.map(
             (offer) => ListTile(
-              title: Text('${offer.network} | ${offer.name} (${offer.priceLabel})', style: const TextStyle(fontSize: 13)),
+              title: Text(
+                '${offer.network} | ${offer.name} (${offer.priceLabel})',
+                style: const TextStyle(fontSize: 13),
+              ),
               subtitle: Text(
-                offer.isVisible ? 'Visible' : 'Hidden',
+                '${offer.validity} • ${offer.isVisible ? 'Visible' : 'Hidden'}',
                 style: TextStyle(color: offer.isVisible ? BDSColors.primaryGreen : BDSColors.greyText),
               ),
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  IconButton(
+                    icon: const Icon(Icons.edit, color: BDSColors.primaryGreen),
+                    onPressed: () => _showEditOfferDialog(offer),
+                  ),
                   IconButton(
                     icon: Icon(offer.isVisible ? Icons.visibility_off : Icons.visibility),
                     onPressed: () {
