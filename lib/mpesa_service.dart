@@ -5,7 +5,7 @@ class MpesaService {
   static const String stkEndpoint =
       'https://fjorzgowplrsfohozlhd.supabase.co/functions/v1/mpesa-stk';
 
-  static Future> sendStkPush({
+  static Future sendStkPush({
     required String phone,
     required int amount,
     required String orderId,
@@ -28,7 +28,7 @@ class MpesaService {
 
     if (response.statusCode >= 200 &&
         response.statusCode < 300 &&
-        decoded is Map<String, dynamic>) {
+        decoded is Map) {
       return decoded;
     }
 
