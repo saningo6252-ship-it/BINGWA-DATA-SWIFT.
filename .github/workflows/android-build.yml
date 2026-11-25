@@ -104,7 +104,7 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
-      - name: Set app label
+      - name: Set app label and ensure INTERNET permission
         run: |
           if [ -f "android/app/src/main/AndroidManifest.xml" ]; then
             python3 -c '
@@ -113,6 +113,9 @@ jobs:
           p = Path("android/app/src/main/AndroidManifest.xml")
           txt = p.read_text(encoding="utf-8")
           txt = re.sub(r'\''android:label="[^"]*"'\'', '\''android:label="BINGWA DATA SWIFT"'\'', txt)
+          perm = "<uses-permission android:name=\"android.permission.INTERNET\"/>"
+          if "android.permission.INTERNET" not in txt:
+              txt = txt.replace("<application", perm + "\n    <application", 1)
           p.write_text(txt, encoding="utf-8")
           '
           fi
