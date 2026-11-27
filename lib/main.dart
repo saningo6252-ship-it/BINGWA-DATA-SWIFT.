@@ -23,6 +23,7 @@ void main() {
 class BDSColors {
   static const Color pureWhite = Color(0xFFFFFFFF);
   static const Color primaryGreen = Color(0xFF22A06B);
+  static const Color splashGreen = Color(0xFF1B7A3E);
   static const Color lightGreenAccent = Color(0xFF4ADE80);
   static const Color softGreenBg = Color(0xFFEAF9F1);
   static const Color lightGreenBadgeBg = Color(0xFFD1FAE5);
@@ -120,15 +121,21 @@ class AdItem {
   final String title;
   final String subtitle;
   final int iconCodePoint;
+  final String mediaType; // 'ad' | 'image' | 'video'
+  final String? mediaPath;
 
   const AdItem({
     required this.id,
     required this.title,
     required this.subtitle,
     this.iconCodePoint = 0xe0e8, // Icons.bolt
+    this.mediaType = 'ad',
+    this.mediaPath,
   });
 
   IconData get icon {
+    if (mediaType == 'video') return Icons.play_circle_fill;
+    if (mediaType == 'image') return Icons.image;
     if (iconCodePoint == 0xe6e7) return Icons.wifi_tethering;
     if (iconCodePoint == 0xe126) return Icons.campaign;
     return Icons.bolt;
@@ -139,6 +146,8 @@ class AdItem {
         'title': title,
         'subtitle': subtitle,
         'iconCodePoint': iconCodePoint,
+        'mediaType': mediaType,
+        'mediaPath': mediaPath,
       };
 
   factory AdItem.fromJson(Map<String, dynamic> json) => AdItem(
@@ -146,6 +155,8 @@ class AdItem {
         title: json['title'] as String? ?? 'Promotion',
         subtitle: json['subtitle'] as String? ?? '',
         iconCodePoint: (json['iconCodePoint'] as num?)?.toInt() ?? 0xe0e8,
+        mediaType: json['mediaType'] as String? ?? 'ad',
+        mediaPath: json['mediaPath'] as String?,
       );
 }
 
@@ -287,10 +298,10 @@ class Catalogue68 {
 class LegalContent {
   static const String privacyPolicy = '''
 1. Information We Collect & Use
-Bingwa Data Swift collects only the details needed to provide bundle ordering, account access, and customer support—such as your name, phone number, selected recipient number, and order history entries.
+Bingwa Data Swift collects only the details needed to provide bundle ordering, account access, and customer support—such as your name, email address, phone number, selected recipient number, and order history entries.
 
 2. Profile Photos & Device Permissions
-• Photo Gallery: Accessed only when you choose to upload or change your profile picture.
+• Photo Gallery: Accessed only when you choose to upload or change your profile picture or admin promo media.
 • Phone & External Links: Used only when you initiate a support call, open WhatsApp, or share a download link.
 • Security Credentials: API secrets and payment keys are never embedded inside the app; payment processing relies on secure backend verification.
 
@@ -347,6 +358,26 @@ Future<String?> pickImageFromGallery(BuildContext context) async {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Unable to open gallery on this device.')),
+      );
+    }
+    return null;
+  }
+}
+
+Future<String?> pickVideoFromGallery(BuildContext context) async {
+  try {
+    final picker = ImagePicker();
+    final XFile? picked = await picker.pickVideo(
+      source: ImageSource.gallery,
+    );
+    if (picked == null) {
+      return null;
+    }
+    return picked.path;
+  } catch (_) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Unable to open video gallery on this device.')),
       );
     }
     return null;
@@ -419,12 +450,22 @@ class _BingwaDataSwiftAppState extends State<BingwaDataSwiftApp> {
   static const String _kStoreOpenKey = 'bds_store_open_v1';
   static const String _kProfilePhotoKey = 'bds_profile_photo_v1';
 
+  // Saved account credentials for PIN-only login & email OTP/reset
+  static const String _kHasAccountKey = 'bds_has_account_v1';
+  static const String _kSavedEmailKey = 'bds_saved_email_v1';
+  static const String _kSavedPinKey = 'bds_saved_pin_v1';
+  static const String _kSavedNameKey = 'bds_saved_name_v1';
+
   bool _showSplash = true;
   bool _isAuthenticated = false;
+  bool _hasAccount = false;
+  bool _forceRegisterScreen = false;
   bool _isAdmin = false;
+
   String _userName = 'Bingwa User';
+  String _userEmail = '';
   String _userPhone = '07XXXXXXXX';
-  String _userPin = '1234';
+  String _userPin = '';
   String? _profilePhotoPath;
   bool _storeOpen = true;
 
@@ -435,12 +476,14 @@ class _BingwaDataSwiftAppState extends State<BingwaDataSwiftApp> {
       title: 'Fast Data & Minutes Across Networks',
       subtitle: 'Instant M-Pesa STK Push checkout with clear bundle details.',
       iconCodePoint: 0xe0e8,
+      mediaType: 'ad',
     ),
     const AdItem(
       id: 'ad_2',
       title: 'Safaricom, Airtel, Telkom & Faiba',
       subtitle: 'Select your network and confirm your recipient number easily.',
       iconCodePoint: 0xe6e7,
+      mediaType: 'ad',
     ),
   ];
   List<OrderRecord> _orders = [];
@@ -464,9 +507,19 @@ class _BingwaDataSwiftAppState extends State<BingwaDataSwiftApp> {
       final savedOrdersJson = prefs.getString(_kOrdersKey);
       final savedStoreOpen = prefs.getBool(_kStoreOpenKey);
       final savedPhoto = prefs.getString(_kProfilePhotoKey);
+      final savedHasAccount = prefs.getBool(_kHasAccountKey) ?? false;
+      final savedEmail = prefs.getString(_kSavedEmailKey) ?? '';
+      final savedPin = prefs.getString(_kSavedPinKey) ?? '';
+      final savedName = prefs.getString(_kSavedNameKey) ?? '';
 
       if (!mounted) return;
       setState(() {
+        _hasAccount = savedHasAccount && savedEmail.isNotEmpty && savedPin.isNotEmpty;
+        _userEmail = savedEmail;
+        _userPin = savedPin;
+        if (savedName.isNotEmpty) {
+          _userName = savedName;
+        }
         if (savedOffersJson != null && savedOffersJson.isNotEmpty) {
           final decoded = jsonDecode(savedOffersJson) as List<dynamic>;
           _offers = decoded
@@ -493,6 +546,20 @@ class _BingwaDataSwiftAppState extends State<BingwaDataSwiftApp> {
         }
       });
     } catch (_) {}
+  }
+
+  Future<void> _saveAccountCredentials({
+    required String email,
+    required String pin,
+    String? name,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kHasAccountKey, true);
+    await prefs.setString(_kSavedEmailKey, email);
+    await prefs.setString(_kSavedPinKey, pin);
+    if (name != null && name.trim().isNotEmpty) {
+      await prefs.setString(_kSavedNameKey, name.trim());
+    }
   }
 
   Future<void> _saveOffers() async {
@@ -529,43 +596,91 @@ class _BingwaDataSwiftAppState extends State<BingwaDataSwiftApp> {
     await prefs.setString(_kProfilePhotoKey, path);
   }
 
-  void _onLoginSuccess({
+  void _onAccountRegistered({
+    required String email,
+    required String pin,
     String? name,
-    String? phone,
-    String? pin,
     String? profilePhotoPath,
   }) {
-    final resolvedPhone = (phone != null && phone.trim().isNotEmpty)
-        ? phone.trim()
-        : _userPhone;
-    final resolvedPin = (pin != null && pin.length == 4)
-        ? pin
-        : _userPin;
+    final resolvedName = (name != null && name.trim().isNotEmpty)
+        ? name.trim()
+        : (email.contains('@') ? email.split('@').first : _userName);
 
     setState(() {
-      if (name != null && name.trim().isNotEmpty) {
-        _userName = name.trim();
-      }
-      _userPhone = resolvedPhone;
-      _userPin = resolvedPin;
+      _userName = resolvedName;
+      _userEmail = email.trim();
+      _userPin = pin.trim();
+      _hasAccount = true;
+      _forceRegisterScreen = false;
       if (profilePhotoPath != null && profilePhotoPath.isNotEmpty) {
         _profilePhotoPath = profilePhotoPath;
         _saveProfilePhoto(profilePhotoPath);
       }
-      _isAdmin = _checkIsAdmin(resolvedPhone, resolvedPin);
+      _isAdmin = _checkIsAdmin(_userPhone, pin.trim());
       _isAuthenticated = true;
     });
+
+    _saveAccountCredentials(
+      email: email.trim(),
+      pin: pin.trim(),
+      name: resolvedName,
+    );
+  }
+
+  void _onPinLoginSuccess(String pin) {
+    setState(() {
+      _userPin = pin.trim();
+      _forceRegisterScreen = false;
+      _isAdmin = _checkIsAdmin(_userPhone, pin.trim());
+      _isAuthenticated = true;
+    });
+  }
+
+  void _onPinResetSuccess(String newPin) {
+    setState(() {
+      _userPin = newPin.trim();
+      _forceRegisterScreen = false;
+      _isAdmin = _checkIsAdmin(_userPhone, newPin.trim());
+      _isAuthenticated = true;
+    });
+    if (_userEmail.isNotEmpty) {
+      _saveAccountCredentials(
+        email: _userEmail,
+        pin: newPin.trim(),
+        name: _userName,
+      );
+    }
   }
 
   void _onLogout() {
     setState(() {
       _isAuthenticated = false;
+      _forceRegisterScreen = false;
       _isAdmin = false;
     });
   }
 
   @override
   Widget build(BuildContext context) {
+    Widget activeEntryScreen;
+    if (!_hasAccount || _forceRegisterScreen) {
+      activeEntryScreen = RegistrationPage(
+        initialEmail: _userEmail,
+        onRegistered: _onAccountRegistered,
+        onGoToLogin: _hasAccount
+            ? () => setState(() => _forceRegisterScreen = false)
+            : null,
+      );
+    } else {
+      activeEntryScreen = PinOnlyLoginPage(
+        savedEmail: _userEmail,
+        expectedPin: _userPin,
+        onLoginSuccess: _onPinLoginSuccess,
+        onResetPinSuccess: _onPinResetSuccess,
+        onRegisterAccountTap: () => setState(() => _forceRegisterScreen = true),
+      );
+    }
+
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: Catalogue68.appName,
@@ -593,10 +708,10 @@ class _BingwaDataSwiftAppState extends State<BingwaDataSwiftApp> {
       home: _showSplash
           ? const SplashScreen()
           : !_isAuthenticated
-              ? AuthScreen(onSuccess: _onLoginSuccess)
+              ? activeEntryScreen
               : MainShellScreen(
                   userName: _userName,
-                  userPhone: _userPhone,
+                  userPhone: _userEmail.isNotEmpty ? _userEmail : _userPhone,
                   profilePhotoPath: _profilePhotoPath,
                   isAdmin: _isAdmin,
                   storeOpen: _storeOpen,
@@ -609,6 +724,13 @@ class _BingwaDataSwiftAppState extends State<BingwaDataSwiftApp> {
                       _userPin = newPin;
                       _isAdmin = _checkIsAdmin(_userPhone, newPin);
                     });
+                    if (_userEmail.isNotEmpty) {
+                      _saveAccountCredentials(
+                        email: _userEmail,
+                        pin: newPin,
+                        name: _userName,
+                      );
+                    }
                   },
                   onUpdateProfilePhoto: (path) {
                     setState(() => _profilePhotoPath = path);
@@ -666,83 +788,126 @@ class SplashScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: BDSColors.pureWhite,
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                width: 96,
-                height: 96,
-                decoration: BoxDecoration(
-                  color: BDSColors.softGreenBg,
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(color: BDSColors.lightGreenAccent, width: 1.5),
-                ),
-                child: const Icon(
-                  Icons.bolt,
-                  size: 52,
-                  color: BDSColors.primaryGreen,
-                ),
+      backgroundColor: BDSColors.splashGreen,
+      body: Stack(
+        children: [
+          Positioned(
+            top: -70,
+            right: -50,
+            child: Container(
+              width: 210,
+              height: 210,
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.08),
+                shape: BoxShape.circle,
               ),
-              const SizedBox(height: 20),
-              const Text(
-                Catalogue68.appName,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w500,
-                  color: BDSColors.blackText,
-                ),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                Catalogue68.tagline,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.normal,
-                  color: BDSColors.greyText,
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
+          Positioned(
+            bottom: -80,
+            left: -60,
+            child: Container(
+              width: 240,
+              height: 240,
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.08),
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: const [
+                  Text(
+                    'Welcome!',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w700,
+                      color: BDSColors.pureWhite,
+                    ),
+                  ),
+                  SizedBox(height: 12),
+                  Text(
+                    'Welcome to ${Catalogue68.appName}',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      color: BDSColors.pureWhite,
+                    ),
+                  ),
+                  SizedBox(height: 8),
+                  Text(
+                    Catalogue68.tagline,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.normal,
+                      color: Color(0xFFD1FAE5),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-class AuthScreen extends StatefulWidget {
+/// Separate Registration Page: shown when no account exists or when user taps Register Account.
+/// Uses Email Address + PIN + Email OTP / confirmation link (no phone number).
+class RegistrationPage extends StatefulWidget {
+  final String initialEmail;
   final void Function({
+    required String email,
+    required String pin,
     String? name,
-    String? phone,
-    String? pin,
     String? profilePhotoPath,
-  }) onSuccess;
+  }) onRegistered;
+  final VoidCallback? onGoToLogin;
 
-  const AuthScreen({
+  const RegistrationPage({
     super.key,
-    required this.onSuccess,
+    this.initialEmail = '',
+    required this.onRegistered,
+    this.onGoToLogin,
   });
 
   @override
-  State<AuthScreen> createState() => _AuthScreenState();
+  State<RegistrationPage> createState() => _RegistrationPageState();
 }
 
-class _AuthScreenState extends State<AuthScreen> {
-  bool _isLoginMode = true;
-  bool _forgotPinMode = false;
+class _RegistrationPageState extends State<RegistrationPage> {
+  late final TextEditingController _nameCtrl;
+  late final TextEditingController _emailCtrl;
+  final _pinCtrl = TextEditingController();
+  final _otpCtrl = TextEditingController();
+
   bool _otpSent = false;
   String? _selectedPhotoPath;
-
-  final _nameCtrl = TextEditingController();
-  final _phoneCtrl = TextEditingController();
-  final _otpCtrl = TextEditingController();
-  final _pinCtrl = TextEditingController();
   String _error = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _nameCtrl = TextEditingController();
+    _emailCtrl = TextEditingController(text: widget.initialEmail);
+  }
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _emailCtrl.dispose();
+    _pinCtrl.dispose();
+    _otpCtrl.dispose();
+    super.dispose();
+  }
 
   Future<void> _uploadProfilePicture() async {
     final path = await pickImageFromGallery(context);
@@ -754,9 +919,10 @@ class _AuthScreenState extends State<AuthScreen> {
     }
   }
 
-  void _sendOtp() {
-    if (_phoneCtrl.text.trim().length < 9) {
-      setState(() => _error = 'Please enter a valid phone number first.');
+  void _sendEmailOtpOrLink() {
+    final email = _emailCtrl.text.trim();
+    if (!email.contains('@') || !email.contains('.')) {
+      setState(() => _error = 'Please enter a valid email address first.');
       return;
     }
     setState(() {
@@ -764,60 +930,45 @@ class _AuthScreenState extends State<AuthScreen> {
       _error = '';
     });
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('OTP sent to your phone number.')),
+      SnackBar(
+        content: Text('Confirmation link & OTP code sent to $email.'),
+      ),
     );
   }
 
-  void _submit() {
-    final phone = _phoneCtrl.text.trim();
+  void _registerAccount() {
+    final email = _emailCtrl.text.trim();
     final pin = _pinCtrl.text.trim();
+    final otp = _otpCtrl.text.trim();
 
-    if (_forgotPinMode) {
-      if (phone.length < 9 || _otpCtrl.text.trim().length < 4 || pin.length != 4) {
-        setState(() => _error = 'Enter phone number, OTP, and a new 4-digit PIN.');
-        return;
-      }
-      widget.onSuccess(
-        phone: phone,
-        pin: pin,
-        profilePhotoPath: _selectedPhotoPath,
-      );
+    if (!email.contains('@') || !email.contains('.')) {
+      setState(() => _error = 'Please enter a valid email address.');
+      return;
+    }
+    if (pin.length != 4) {
+      setState(() => _error = 'Please create a 4-digit PIN.');
+      return;
+    }
+    if (!_otpSent) {
+      setState(() => _error = 'Tap Send Email OTP first and enter the code sent to your email.');
+      return;
+    }
+    if (otp.length < 4) {
+      setState(() => _error = 'Please enter the OTP code sent to your email.');
       return;
     }
 
-    if (_isLoginMode) {
-      if (phone.length < 9 || pin.length != 4) {
-        setState(() => _error = 'Enter your phone number and 4-digit PIN.');
-        return;
-      }
-      widget.onSuccess(
-        phone: phone,
-        pin: pin,
-        profilePhotoPath: _selectedPhotoPath,
-      );
-    } else {
-      if (_nameCtrl.text.trim().isEmpty ||
-          phone.length < 9 ||
-          _otpCtrl.text.trim().length < 4 ||
-          pin.length != 4) {
-        setState(() => _error = 'Complete name, phone number, OTP, and 4-digit PIN.');
-        return;
-      }
-      widget.onSuccess(
-        name: _nameCtrl.text.trim(),
-        phone: phone,
-        pin: pin,
-        profilePhotoPath: _selectedPhotoPath,
-      );
-    }
+    setState(() => _error = '');
+    widget.onRegistered(
+      email: email,
+      pin: pin,
+      name: _nameCtrl.text.trim(),
+      profilePhotoPath: _selectedPhotoPath,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final titleText = _forgotPinMode
-        ? 'Reset PIN with OTP'
-        : (_isLoginMode ? 'Welcome Back' : 'Create Account');
-
     return Scaffold(
       backgroundColor: BDSColors.pureWhite,
       body: SafeArea(
@@ -834,71 +985,7 @@ class _AuthScreenState extends State<AuthScreen> {
                     textAlign: TextAlign.center,
                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.w500),
                   ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: GestureDetector(
-                          onTap: () => setState(() {
-                            _isLoginMode = true;
-                            _forgotPinMode = false;
-                            _error = '';
-                          }),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            decoration: BoxDecoration(
-                              color: _isLoginMode && !_forgotPinMode
-                                  ? BDSColors.primaryGreen
-                                  : BDSColors.lightGreyPill,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Center(
-                              child: Text(
-                                'Login',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w500,
-                                  color: _isLoginMode && !_forgotPinMode
-                                      ? BDSColors.pureWhite
-                                      : BDSColors.blackText,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: GestureDetector(
-                          onTap: () => setState(() {
-                            _isLoginMode = false;
-                            _forgotPinMode = false;
-                            _error = '';
-                          }),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            decoration: BoxDecoration(
-                              color: !_isLoginMode && !_forgotPinMode
-                                  ? BDSColors.primaryGreen
-                                  : BDSColors.lightGreyPill,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Center(
-                              child: Text(
-                                'Register',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w500,
-                                  color: !_isLoginMode && !_forgotPinMode
-                                      ? BDSColors.pureWhite
-                                      : BDSColors.blackText,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 18),
                   GestureDetector(
                     onTap: _uploadProfilePicture,
                     child: Column(
@@ -921,52 +1008,54 @@ class _AuthScreenState extends State<AuthScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  Text(
-                    titleText,
-                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w500),
+                  const Text(
+                    'Create Account',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w500),
                   ),
-                  const SizedBox(height: 14),
-                  if (!_isLoginMode && !_forgotPinMode) ...[
-                    TextField(
-                      controller: _nameCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Full Name',
-                        hintText: 'Enter full name',
-                        border: OutlineInputBorder(),
-                      ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Verify your email with OTP / confirmation link and set your PIN.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 13, color: BDSColors.greyText),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: _nameCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Full Name (Optional)',
+                      hintText: 'Enter full name',
+                      border: OutlineInputBorder(),
                     ),
-                    const SizedBox(height: 12),
-                  ],
+                  ),
+                  const SizedBox(height: 12),
                   Row(
                     children: [
                       Expanded(
                         child: TextField(
-                          controller: _phoneCtrl,
-                          keyboardType: TextInputType.phone,
+                          controller: _emailCtrl,
+                          keyboardType: TextInputType.emailAddress,
                           decoration: const InputDecoration(
-                            labelText: 'Phone Number',
-                            hintText: '07XXXXXXXX',
+                            labelText: 'Email Address',
+                            hintText: 'name@example.com',
                             border: OutlineInputBorder(),
                           ),
                         ),
                       ),
-                      if (!_isLoginMode || _forgotPinMode) ...[
-                        const SizedBox(width: 8),
-                        ElevatedButton(
-                          onPressed: _sendOtp,
-                          child: Text(_otpSent ? 'Resend OTP' : 'Send OTP'),
-                        ),
-                      ],
+                      const SizedBox(width: 8),
+                      ElevatedButton(
+                        onPressed: _sendEmailOtpOrLink,
+                        child: Text(_otpSent ? 'Resend OTP' : 'Send OTP'),
+                      ),
                     ],
                   ),
-                  if (!_isLoginMode || _forgotPinMode) ...[
+                  if (_otpSent) ...[
                     const SizedBox(height: 12),
                     TextField(
                       controller: _otpCtrl,
                       keyboardType: TextInputType.number,
                       decoration: const InputDecoration(
-                        labelText: 'OTP Code',
-                        hintText: 'Enter OTP',
+                        labelText: 'Email OTP Code',
+                        hintText: 'Enter OTP from email',
                         border: OutlineInputBorder(),
                       ),
                     ),
@@ -978,7 +1067,7 @@ class _AuthScreenState extends State<AuthScreen> {
                     obscureText: true,
                     maxLength: 4,
                     decoration: const InputDecoration(
-                      labelText: '4-Digit PIN',
+                      labelText: 'Create 4-Digit PIN',
                       hintText: '****',
                       border: OutlineInputBorder(),
                     ),
@@ -996,28 +1085,252 @@ class _AuthScreenState extends State<AuthScreen> {
                     width: double.infinity,
                     height: 48,
                     child: ElevatedButton(
-                      onPressed: _submit,
-                      child: Text(
-                        _forgotPinMode
-                            ? 'Save New PIN'
-                            : (_isLoginMode ? 'Login' : 'Register'),
+                      onPressed: _registerAccount,
+                      child: const Text('Register & Confirm Email'),
+                    ),
+                  ),
+                  if (widget.onGoToLogin != null) ...[
+                    const SizedBox(height: 10),
+                    TextButton(
+                      onPressed: widget.onGoToLogin,
+                      child: const Text(
+                        'Already have an account? Login with PIN',
+                        style: TextStyle(color: BDSColors.primaryGreen),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  TextButton(
-                    onPressed: () => setState(() {
-                      _forgotPinMode = !_forgotPinMode;
-                      _error = '';
-                    }),
-                    child: Text(
-                      _forgotPinMode ? 'Back to Login' : 'Forgot PIN with OTP?',
-                      style: const TextStyle(color: BDSColors.primaryGreen),
-                    ),
-                  ),
+                  ],
                 ],
               ),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Separate Login Page: shown after an account exists.
+/// Displays PIN input ONLY (email is stored), refuses incorrect PIN until
+/// Forgot PIN sends a new email code/link, and keeps Register Account at the bottom.
+class PinOnlyLoginPage extends StatefulWidget {
+  final String savedEmail;
+  final String expectedPin;
+  final ValueChanged<String> onLoginSuccess;
+  final ValueChanged<String> onResetPinSuccess;
+  final VoidCallback onRegisterAccountTap;
+
+  const PinOnlyLoginPage({
+    super.key,
+    required this.savedEmail,
+    required this.expectedPin,
+    required this.onLoginSuccess,
+    required this.onResetPinSuccess,
+    required this.onRegisterAccountTap,
+  });
+
+  @override
+  State<PinOnlyLoginPage> createState() => _PinOnlyLoginPageState();
+}
+
+class _PinOnlyLoginPageState extends State<PinOnlyLoginPage> {
+  final _pinCtrl = TextEditingController();
+  final _resetOtpCtrl = TextEditingController();
+  final _newPinCtrl = TextEditingController();
+
+  bool _forgotPinMode = false;
+  bool _resetLinkSent = false;
+  String _error = '';
+
+  @override
+  void dispose() {
+    _pinCtrl.dispose();
+    _resetOtpCtrl.dispose();
+    _newPinCtrl.dispose();
+    super.dispose();
+  }
+
+  void _loginWithPinOnly() {
+    final enteredPin = _pinCtrl.text.trim();
+    if (enteredPin.length != 4) {
+      setState(() => _error = 'Enter your 4-digit PIN.');
+      return;
+    }
+    if (enteredPin != widget.expectedPin) {
+      setState(
+        () => _error =
+            'Incorrect PIN. Access denied — try again or use Forgot PIN to send a new one to your email.',
+      );
+      return;
+    }
+    setState(() => _error = '');
+    widget.onLoginSuccess(enteredPin);
+  }
+
+  void _sendForgotPinEmail() {
+    setState(() {
+      _resetLinkSent = true;
+      _error = '';
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          widget.savedEmail.isNotEmpty
+              ? 'New PIN reset link & OTP sent to ${widget.savedEmail}.'
+              : 'New PIN reset link & OTP sent to your registered email.',
+        ),
+      ),
+    );
+  }
+
+  void _confirmNewPin() {
+    final otp = _resetOtpCtrl.text.trim();
+    final newPin = _newPinCtrl.text.trim();
+    if (!_resetLinkSent) {
+      setState(() => _error = 'Send the reset link/OTP to your email first.');
+      return;
+    }
+    if (otp.length < 4) {
+      setState(() => _error = 'Enter the OTP code sent to your email.');
+      return;
+    }
+    if (newPin.length != 4) {
+      setState(() => _error = 'Enter a new 4-digit PIN.');
+      return;
+    }
+    setState(() => _error = '');
+    widget.onResetPinSuccess(newPin);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: BDSColors.pureWhite,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            children: [
+              Expanded(
+                child: Center(
+                  child: SingleChildScrollView(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 440),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const Text(
+                            Catalogue68.appName,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w500),
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            _forgotPinMode ? 'Forgot PIN' : 'Welcome Back',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w500),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            _forgotPinMode
+                                ? 'We send a new PIN reset link & OTP to your registered email.'
+                                : 'Enter your PIN to login directly.',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(fontSize: 13, color: BDSColors.greyText),
+                          ),
+                          const SizedBox(height: 22),
+                          if (!_forgotPinMode) ...[
+                            TextField(
+                              controller: _pinCtrl,
+                              keyboardType: TextInputType.number,
+                              obscureText: true,
+                              maxLength: 4,
+                              textAlign: TextAlign.center,
+                              decoration: const InputDecoration(
+                                labelText: 'Enter PIN',
+                                hintText: '****',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                          ] else ...[
+                            ElevatedButton.icon(
+                              onPressed: _sendForgotPinEmail,
+                              icon: const Icon(Icons.mark_email_read),
+                              label: Text(
+                                _resetLinkSent
+                                    ? 'Resend Email Link & OTP'
+                                    : 'Send New PIN Link & OTP to Email',
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            TextField(
+                              controller: _resetOtpCtrl,
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(
+                                labelText: 'Email OTP Code',
+                                hintText: 'Enter OTP from email',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            TextField(
+                              controller: _newPinCtrl,
+                              keyboardType: TextInputType.number,
+                              obscureText: true,
+                              maxLength: 4,
+                              decoration: const InputDecoration(
+                                labelText: 'New 4-Digit PIN',
+                                hintText: '****',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                          ],
+                          if (_error.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              _error,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(color: BDSColors.dangerRed),
+                            ),
+                          ],
+                          const SizedBox(height: 14),
+                          SizedBox(
+                            height: 48,
+                            child: ElevatedButton(
+                              onPressed: _forgotPinMode ? _confirmNewPin : _loginWithPinOnly,
+                              child: Text(_forgotPinMode ? 'Set New PIN & Login' : 'Login'),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          TextButton(
+                            onPressed: () => setState(() {
+                              _forgotPinMode = !_forgotPinMode;
+                              _error = '';
+                            }),
+                            child: Text(
+                              _forgotPinMode ? 'Back to PIN Login' : 'Forgot PIN?',
+                              style: const TextStyle(color: BDSColors.primaryGreen),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              SizedBox(
+                width: double.infinity,
+                height: 46,
+                child: OutlinedButton(
+                  onPressed: widget.onRegisterAccountTap,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: BDSColors.primaryGreen,
+                    side: const BorderSide(color: BDSColors.primaryGreen, width: 1.4),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: const Text('Register Account'),
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -1190,6 +1503,32 @@ class HomeTabScreen extends StatelessWidget {
     required this.onNetworkTap,
   });
 
+  Widget _buildAdLeading(AdItem ad) {
+    if (ad.mediaType == 'image' &&
+        ad.mediaPath != null &&
+        ad.mediaPath!.isNotEmpty &&
+        File(ad.mediaPath!).existsSync()) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: Image.file(
+          File(ad.mediaPath!),
+          width: 64,
+          height: 64,
+          fit: BoxFit.cover,
+        ),
+      );
+    }
+    return Container(
+      width: 56,
+      height: 56,
+      decoration: BoxDecoration(
+        color: BDSColors.pureWhite,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Icon(ad.icon, size: 30, color: BDSColors.primaryGreen),
+    );
+  }
+
   Widget _buildCompanyLogo(String company) {
     switch (company) {
       case 'SAFARICOM':
@@ -1343,15 +1682,7 @@ class HomeTabScreen extends StatelessWidget {
                       ),
                       child: Row(
                         children: [
-                          Container(
-                            width: 56,
-                            height: 56,
-                            decoration: BoxDecoration(
-                              color: BDSColors.pureWhite,
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                            child: Icon(ad.icon, size: 30, color: BDSColors.primaryGreen),
-                          ),
+                          _buildAdLeading(ad),
                           const SizedBox(width: 12),
                           Expanded(
                             child: Column(
@@ -1360,11 +1691,15 @@ class HomeTabScreen extends StatelessWidget {
                               children: [
                                 Text(
                                   ad.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  ad.subtitle,
+                                  ad.mediaType == 'video' && ad.mediaPath != null
+                                      ? '${ad.subtitle} (Video attached)'
+                                      : ad.subtitle,
                                   maxLines: 3,
                                   overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(fontSize: 12, color: BDSColors.greyText),
@@ -2140,7 +2475,7 @@ class AccountScreen extends StatelessWidget {
                   children: [
                     Text('Name: $userName', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
                     const SizedBox(height: 4),
-                    Text('Phone: $userPhone', style: const TextStyle(color: BDSColors.greyText)),
+                    Text('Account: $userPhone', style: const TextStyle(color: BDSColors.greyText)),
                   ],
                 ),
               ),
@@ -2286,12 +2621,29 @@ class AdminDashboardScreen extends StatefulWidget {
 class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   String _selectedNet = 'SAFARICOM';
   String _filterNet = 'ALL';
+  String _selectedMediaType = 'ad';
+  String? _selectedMediaPath;
+
   final _nameCtrl = TextEditingController();
   final _priceCtrl = TextEditingController();
   final _validityCtrl = TextEditingController();
   final _categoryCtrl = TextEditingController(text: 'DATA');
   final _adTitleCtrl = TextEditingController();
   final _adSubtitleCtrl = TextEditingController();
+
+  Future<void> _pickPromoMedia() async {
+    if (_selectedMediaType == 'image') {
+      final path = await pickImageFromGallery(context);
+      if (path != null && mounted) {
+        setState(() => _selectedMediaPath = path);
+      }
+    } else if (_selectedMediaType == 'video') {
+      final path = await pickVideoFromGallery(context);
+      if (path != null && mounted) {
+        setState(() => _selectedMediaPath = path);
+      }
+    }
+  }
 
   void _addNewOffer() {
     final name = _nameCtrl.text.trim();
@@ -2434,12 +2786,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_normalizePhone(widget.adminPhone) != _normalizePhone(Catalogue68.adminPhone)) {
-      return const Scaffold(
-        body: Center(child: Text('Unauthorized access.')),
-      );
-    }
-
     final filteredOffers = _filterNet == 'ALL'
         ? widget.offers
         : widget.offers.where((o) => o.network == _filterNet).toList();
@@ -2468,16 +2814,52 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             },
           ),
           const Divider(height: 24),
-          const Text('Manage Ads', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
+          const Text(
+            'Manage Promo Ads, Pictures & Videos (Visible to All Users)',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+          ),
+          const SizedBox(height: 8),
+          DropdownButtonFormField<String>(
+            value: _selectedMediaType,
+            items: const [
+              DropdownMenuItem(value: 'ad', child: Text('Ad / Text Promo')),
+              DropdownMenuItem(value: 'image', child: Text('Picture / Image')),
+              DropdownMenuItem(value: 'video', child: Text('Video')),
+            ],
+            onChanged: (v) => setState(() {
+              _selectedMediaType = v ?? 'ad';
+              _selectedMediaPath = null;
+            }),
+            decoration: const InputDecoration(
+              labelText: 'Promo Media Type',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          if (_selectedMediaType == 'image' || _selectedMediaType == 'video') ...[
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: _pickPromoMedia,
+              icon: Icon(
+                _selectedMediaType == 'video' ? Icons.video_library : Icons.photo_library,
+                color: BDSColors.primaryGreen,
+              ),
+              label: Text(
+                _selectedMediaPath == null
+                    ? 'Pick ${_selectedMediaType == 'video' ? 'Video' : 'Picture'} from Gallery'
+                    : 'Selected: ${_selectedMediaPath!.split('/').last}',
+                style: const TextStyle(color: BDSColors.primaryGreen),
+              ),
+            ),
+          ],
           const SizedBox(height: 8),
           TextField(
             controller: _adTitleCtrl,
-            decoration: const InputDecoration(labelText: 'Ad Title', border: OutlineInputBorder()),
+            decoration: const InputDecoration(labelText: 'Ad / Promo Title', border: OutlineInputBorder()),
           ),
           const SizedBox(height: 8),
           TextField(
             controller: _adSubtitleCtrl,
-            decoration: const InputDecoration(labelText: 'Ad Subtitle', border: OutlineInputBorder()),
+            decoration: const InputDecoration(labelText: 'Ad / Promo Subtitle', border: OutlineInputBorder()),
           ),
           const SizedBox(height: 8),
           ElevatedButton(
@@ -2491,20 +2873,23 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         ? 'Bingwa Data Swift promotion'
                         : _adSubtitleCtrl.text.trim(),
                     iconCodePoint: 0xe126,
+                    mediaType: _selectedMediaType,
+                    mediaPath: _selectedMediaPath,
                   ),
                 );
                 _adTitleCtrl.clear();
                 _adSubtitleCtrl.clear();
-                setState(() {});
+                setState(() => _selectedMediaPath = null);
               }
             },
-            child: const Text('Add Ad'),
+            child: const Text('Publish Promo to Users'),
           ),
           ...List.generate(
             widget.ads.length,
             (i) => ListTile(
+              leading: Icon(widget.ads[i].icon, color: BDSColors.primaryGreen),
               title: Text(widget.ads[i].title),
-              subtitle: Text(widget.ads[i].subtitle),
+              subtitle: Text('${widget.ads[i].mediaType.toUpperCase()} • ${widget.ads[i].subtitle}'),
               trailing: IconButton(
                 icon: const Icon(Icons.delete, color: BDSColors.dangerRed),
                 onPressed: () {
