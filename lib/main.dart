@@ -36,6 +36,23 @@ class BDSColors {
   static const Color amberText = Color(0xFFB45309);
 }
 
+class DataPageColors {
+  static const Color pageBg = Color(0xFFF3F6F4);
+  static const Color cardBg = Color(0xFFFFFFFF);
+  static const Color cardBorder = Color(0xFFE3EAE5);
+  static const Color buyButtonGreen = Color(0xFF1B7A3E);
+  static const Color buyTextWhite = Color(0xFFFFFFFF);
+  static const Color badgeGreenBg = Color(0xFFD1FAE5);
+  static const Color badgeGreenText = Color(0xFF15803D);
+  static const Color badgeAmberBg = Color(0xFFFEF3C7);
+  static const Color badgeAmberText = Color(0xFFB45309);
+  static const Color titleBlack = Color(0xFF111111);
+  static const Color subtitleGrey = Color(0xFF4B5563);
+  static const Color priceBlack = Color(0xFF111111);
+  static const Color unavailableBorder = Color(0xFFD1D5DB);
+  static const Color unavailableText = Color(0xFF9CA3AF);
+}
+
 class OfferModel {
   final String id;
   final String network;
@@ -214,6 +231,8 @@ class OrderRecord {
 
 class Catalogue68 {
   static const String appName = 'BINGWA DATA SWIFT';
+  static const String displayBrandName = 'Bingwa Data Swift';
+  static const String brandSubline = 'Fast · Reliable · Affordable';
   static const String tagline = 'Bundles and airtime that keep you connected.';
   static const String whatsappPhone = '0794363801';
   static const String callPhone = '0794363801';
@@ -330,6 +349,106 @@ The store may temporarily pause orders during maintenance or when closed. To the
 ''';
 }
 
+/// Global/Backend sync bridge so admin changes reach every installed copy of the app
+/// once connected to your Supabase/REST endpoint (with safe local fallback).
+class RemoteSyncService {
+  static const String supabaseUrl = ''; // e.g. 'https://xxxx.supabase.co'
+  static const String supabaseAnonKey = ''; // e.g. 'eyJ...'
+
+  static bool get isConfigured =>
+      supabaseUrl.trim().isNotEmpty && supabaseAnonKey.trim().isNotEmpty;
+
+  static Future<List<OfferModel>?> fetchRemoteOffers() async {
+    if (!isConfigured) return null;
+    try {
+      final uri = Uri.parse(
+        '${supabaseUrl.trim()}/rest/v1/offers?select=*&order=created_at.desc',
+      );
+      final client = HttpClient();
+      final req = await client.getUrl(uri);
+      req.headers.set('apikey', supabaseAnonKey.trim());
+      req.headers.set('Authorization', 'Bearer ${supabaseAnonKey.trim()}');
+      final res = await req.close();
+      final body = await res.transform(utf8.decoder).join();
+      client.close();
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        final list = jsonDecode(body) as List<dynamic>;
+        return list
+            .map((e) => OfferModel.fromJson(e as Map<String, dynamic>))
+            .toList();
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  static Future<bool> syncOffersToRemote(List<OfferModel> offers) async {
+    if (!isConfigured) return false;
+    try {
+      final uri = Uri.parse(
+        '${supabaseUrl.trim()}/rest/v1/offers?on_conflict=id',
+      );
+      final client = HttpClient();
+      final req = await client.postUrl(uri);
+      req.headers.set('apikey', supabaseAnonKey.trim());
+      req.headers.set('Authorization', 'Bearer ${supabaseAnonKey.trim()}');
+      req.headers.set('Content-Type', 'application/json');
+      req.headers.set('Prefer', 'resolution=merge-duplicates');
+      req.write(jsonEncode(offers.map((o) => o.toJson()).toList()));
+      final res = await req.close();
+      await res.drain<void>();
+      client.close();
+      return res.statusCode >= 200 && res.statusCode < 300;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<List<AdItem>?> fetchRemoteAds() async {
+    if (!isConfigured) return null;
+    try {
+      final uri = Uri.parse(
+        '${supabaseUrl.trim()}/rest/v1/ads?select=*',
+      );
+      final client = HttpClient();
+      final req = await client.getUrl(uri);
+      req.headers.set('apikey', supabaseAnonKey.trim());
+      req.headers.set('Authorization', 'Bearer ${supabaseAnonKey.trim()}');
+      final res = await req.close();
+      final body = await res.transform(utf8.decoder).join();
+      client.close();
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        final list = jsonDecode(body) as List<dynamic>;
+        return list
+            .map((e) => AdItem.fromJson(e as Map<String, dynamic>))
+            .toList();
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  static Future<bool> syncAdsToRemote(List<AdItem> ads) async {
+    if (!isConfigured) return false;
+    try {
+      final uri = Uri.parse(
+        '${supabaseUrl.trim()}/rest/v1/ads?on_conflict=id',
+      );
+      final client = HttpClient();
+      final req = await client.postUrl(uri);
+      req.headers.set('apikey', supabaseAnonKey.trim());
+      req.headers.set('Authorization', 'Bearer ${supabaseAnonKey.trim()}');
+      req.headers.set('Content-Type', 'application/json');
+      req.headers.set('Prefer', 'resolution=merge-duplicates');
+      req.write(jsonEncode(ads.map((a) => a.toJson()).toList()));
+      final res = await req.close();
+      await res.drain<void>();
+      client.close();
+      return res.statusCode >= 200 && res.statusCode < 300;
+    } catch (_) {
+      return false;
+    }
+  }
+}
+
 String _normalizePhone(String input) {
   final digits = input.replaceAll(RegExp(r'\D'), '');
   if (digits.startsWith('254') && digits.length == 12) {
@@ -338,9 +457,13 @@ String _normalizePhone(String input) {
   return digits;
 }
 
-bool _checkIsAdmin(String phone, String pin) {
-  return _normalizePhone(phone) == _normalizePhone(Catalogue68.adminPhone) &&
-      pin.trim() == Catalogue68.adminAccessCode;
+bool _checkIsAdmin({String? phone, String? email, required String pin}) {
+  final pinMatches = pin.trim() == Catalogue68.adminAccessCode;
+  final phoneMatches =
+      phone != null && _normalizePhone(phone) == _normalizePhone(Catalogue68.adminPhone);
+  final emailStartsWithAdmin =
+      email != null && email.trim().toLowerCase().startsWith(Catalogue68.adminPhone);
+  return pinMatches && (phoneMatches || emailStartsWithAdmin);
 }
 
 Future<String?> pickImageFromGallery(BuildContext context) async {
@@ -453,6 +576,7 @@ class _BingwaDataSwiftAppState extends State<BingwaDataSwiftApp> {
   // Saved account credentials for PIN-only login & email OTP/reset
   static const String _kHasAccountKey = 'bds_has_account_v1';
   static const String _kSavedEmailKey = 'bds_saved_email_v1';
+  static const String _kSavedPhoneKey = 'bds_saved_phone_v1';
   static const String _kSavedPinKey = 'bds_saved_pin_v1';
   static const String _kSavedNameKey = 'bds_saved_name_v1';
 
@@ -473,7 +597,7 @@ class _BingwaDataSwiftAppState extends State<BingwaDataSwiftApp> {
   List<AdItem> _ads = [
     const AdItem(
       id: 'ad_1',
-      title: 'Fast Data & Minutes Across Networks',
+      title: 'Fast Data & Minutes A...',
       subtitle: 'Instant M-Pesa STK Push checkout with clear bundle details.',
       iconCodePoint: 0xe0e8,
       mediaType: 'ad',
@@ -509,6 +633,7 @@ class _BingwaDataSwiftAppState extends State<BingwaDataSwiftApp> {
       final savedPhoto = prefs.getString(_kProfilePhotoKey);
       final savedHasAccount = prefs.getBool(_kHasAccountKey) ?? false;
       final savedEmail = prefs.getString(_kSavedEmailKey) ?? '';
+      final savedPhone = prefs.getString(_kSavedPhoneKey) ?? '07XXXXXXXX';
       final savedPin = prefs.getString(_kSavedPinKey) ?? '';
       final savedName = prefs.getString(_kSavedNameKey) ?? '';
 
@@ -516,6 +641,7 @@ class _BingwaDataSwiftAppState extends State<BingwaDataSwiftApp> {
       setState(() {
         _hasAccount = savedHasAccount && savedEmail.isNotEmpty && savedPin.isNotEmpty;
         _userEmail = savedEmail;
+        _userPhone = savedPhone;
         _userPin = savedPin;
         if (savedName.isNotEmpty) {
           _userName = savedName;
@@ -544,38 +670,65 @@ class _BingwaDataSwiftAppState extends State<BingwaDataSwiftApp> {
         if (savedPhoto != null && savedPhoto.isNotEmpty) {
           _profilePhotoPath = savedPhoto;
         }
+        _isAdmin = _checkIsAdmin(
+          phone: _userPhone,
+          email: _userEmail,
+          pin: _userPin,
+        );
       });
+
+      final remoteOffers = await RemoteSyncService.fetchRemoteOffers();
+      final remoteAds = await RemoteSyncService.fetchRemoteAds();
+      if (!mounted) return;
+      if (remoteOffers != null && remoteOffers.isNotEmpty) {
+        setState(() => _offers = remoteOffers);
+        await _saveOffers(syncRemote: false);
+      }
+      if (remoteAds != null && remoteAds.isNotEmpty) {
+        setState(() => _ads = remoteAds);
+        await _saveAds(syncRemote: false);
+      }
     } catch (_) {}
   }
 
   Future<void> _saveAccountCredentials({
     required String email,
     required String pin,
+    String? phone,
     String? name,
   }) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kHasAccountKey, true);
     await prefs.setString(_kSavedEmailKey, email);
     await prefs.setString(_kSavedPinKey, pin);
+    if (phone != null && phone.trim().isNotEmpty) {
+      await prefs.setString(_kSavedPhoneKey, phone.trim());
+    }
     if (name != null && name.trim().isNotEmpty) {
       await prefs.setString(_kSavedNameKey, name.trim());
     }
   }
 
-  Future<void> _saveOffers() async {
+  Future<void> _saveOffers({bool syncRemote = true}) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
       _kOffersKey,
       jsonEncode(_offers.map((o) => o.toJson()).toList()),
     );
+    if (syncRemote) {
+      await RemoteSyncService.syncOffersToRemote(_offers);
+    }
   }
 
-  Future<void> _saveAds() async {
+  Future<void> _saveAds({bool syncRemote = true}) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
       _kAdsKey,
       jsonEncode(_ads.map((a) => a.toJson()).toList()),
     );
+    if (syncRemote) {
+      await RemoteSyncService.syncAdsToRemote(_ads);
+    }
   }
 
   Future<void> _saveOrders() async {
@@ -599,16 +752,21 @@ class _BingwaDataSwiftAppState extends State<BingwaDataSwiftApp> {
   void _onAccountRegistered({
     required String email,
     required String pin,
+    String? phone,
     String? name,
     String? profilePhotoPath,
   }) {
     final resolvedName = (name != null && name.trim().isNotEmpty)
         ? name.trim()
         : (email.contains('@') ? email.split('@').first : _userName);
+    final resolvedPhone = (phone != null && phone.trim().isNotEmpty)
+        ? phone.trim()
+        : _userPhone;
 
     setState(() {
       _userName = resolvedName;
       _userEmail = email.trim();
+      _userPhone = resolvedPhone;
       _userPin = pin.trim();
       _hasAccount = true;
       _forceRegisterScreen = false;
@@ -616,13 +774,18 @@ class _BingwaDataSwiftAppState extends State<BingwaDataSwiftApp> {
         _profilePhotoPath = profilePhotoPath;
         _saveProfilePhoto(profilePhotoPath);
       }
-      _isAdmin = _checkIsAdmin(_userPhone, pin.trim());
+      _isAdmin = _checkIsAdmin(
+        phone: resolvedPhone,
+        email: email.trim(),
+        pin: pin.trim(),
+      );
       _isAuthenticated = true;
     });
 
     _saveAccountCredentials(
       email: email.trim(),
       pin: pin.trim(),
+      phone: resolvedPhone,
       name: resolvedName,
     );
   }
@@ -631,7 +794,11 @@ class _BingwaDataSwiftAppState extends State<BingwaDataSwiftApp> {
     setState(() {
       _userPin = pin.trim();
       _forceRegisterScreen = false;
-      _isAdmin = _checkIsAdmin(_userPhone, pin.trim());
+      _isAdmin = _checkIsAdmin(
+        phone: _userPhone,
+        email: _userEmail,
+        pin: pin.trim(),
+      );
       _isAuthenticated = true;
     });
   }
@@ -640,13 +807,18 @@ class _BingwaDataSwiftAppState extends State<BingwaDataSwiftApp> {
     setState(() {
       _userPin = newPin.trim();
       _forceRegisterScreen = false;
-      _isAdmin = _checkIsAdmin(_userPhone, newPin.trim());
+      _isAdmin = _checkIsAdmin(
+        phone: _userPhone,
+        email: _userEmail,
+        pin: newPin.trim(),
+      );
       _isAuthenticated = true;
     });
     if (_userEmail.isNotEmpty) {
       _saveAccountCredentials(
         email: _userEmail,
         pin: newPin.trim(),
+        phone: _userPhone,
         name: _userName,
       );
     }
@@ -711,7 +883,8 @@ class _BingwaDataSwiftAppState extends State<BingwaDataSwiftApp> {
               ? activeEntryScreen
               : MainShellScreen(
                   userName: _userName,
-                  userPhone: _userEmail.isNotEmpty ? _userEmail : _userPhone,
+                  userPhone: _userPhone,
+                  userEmail: _userEmail,
                   profilePhotoPath: _profilePhotoPath,
                   isAdmin: _isAdmin,
                   storeOpen: _storeOpen,
@@ -722,12 +895,17 @@ class _BingwaDataSwiftAppState extends State<BingwaDataSwiftApp> {
                   onUpdatePin: (newPin) {
                     setState(() {
                       _userPin = newPin;
-                      _isAdmin = _checkIsAdmin(_userPhone, newPin);
+                      _isAdmin = _checkIsAdmin(
+                        phone: _userPhone,
+                        email: _userEmail,
+                        pin: newPin,
+                      );
                     });
                     if (_userEmail.isNotEmpty) {
                       _saveAccountCredentials(
                         email: _userEmail,
                         pin: newPin,
+                        phone: _userPhone,
                         name: _userName,
                       );
                     }
@@ -860,13 +1038,12 @@ class SplashScreen extends StatelessWidget {
   }
 }
 
-/// Separate Registration Page: shown when no account exists or when user taps Register Account.
-/// Uses Email Address + PIN + Email OTP / confirmation link (no phone number).
 class RegistrationPage extends StatefulWidget {
   final String initialEmail;
   final void Function({
     required String email,
     required String pin,
+    String? phone,
     String? name,
     String? profilePhotoPath,
   }) onRegistered;
@@ -886,6 +1063,7 @@ class RegistrationPage extends StatefulWidget {
 class _RegistrationPageState extends State<RegistrationPage> {
   late final TextEditingController _nameCtrl;
   late final TextEditingController _emailCtrl;
+  final _phoneCtrl = TextEditingController();
   final _pinCtrl = TextEditingController();
   final _otpCtrl = TextEditingController();
 
@@ -904,6 +1082,7 @@ class _RegistrationPageState extends State<RegistrationPage> {
   void dispose() {
     _nameCtrl.dispose();
     _emailCtrl.dispose();
+    _phoneCtrl.dispose();
     _pinCtrl.dispose();
     _otpCtrl.dispose();
     super.dispose();
@@ -950,7 +1129,7 @@ class _RegistrationPageState extends State<RegistrationPage> {
       return;
     }
     if (!_otpSent) {
-      setState(() => _error = 'Tap Send Email OTP first and enter the code sent to your email.');
+      setState(() => _error = 'Tap Send OTP first and enter the code sent to your email.');
       return;
     }
     if (otp.length < 4) {
@@ -962,6 +1141,7 @@ class _RegistrationPageState extends State<RegistrationPage> {
     widget.onRegistered(
       email: email,
       pin: pin,
+      phone: _phoneCtrl.text.trim(),
       name: _nameCtrl.text.trim(),
       profilePhotoPath: _selectedPhotoPath,
     );
@@ -1062,6 +1242,16 @@ class _RegistrationPageState extends State<RegistrationPage> {
                   ],
                   const SizedBox(height: 12),
                   TextField(
+                    controller: _phoneCtrl,
+                    keyboardType: TextInputType.phone,
+                    decoration: const InputDecoration(
+                      labelText: 'Phone Number (Optional)',
+                      hintText: '07XXXXXXXX',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
                     controller: _pinCtrl,
                     keyboardType: TextInputType.number,
                     obscureText: true,
@@ -1109,9 +1299,6 @@ class _RegistrationPageState extends State<RegistrationPage> {
   }
 }
 
-/// Separate Login Page: shown after an account exists.
-/// Displays PIN input ONLY (email is stored), refuses incorrect PIN until
-/// Forgot PIN sends a new email code/link, and keeps Register Account at the bottom.
 class PinOnlyLoginPage extends StatefulWidget {
   final String savedEmail;
   final String expectedPin;
@@ -1341,6 +1528,7 @@ class _PinOnlyLoginPageState extends State<PinOnlyLoginPage> {
 class MainShellScreen extends StatefulWidget {
   final String userName;
   final String userPhone;
+  final String userEmail;
   final String? profilePhotoPath;
   final bool isAdmin;
   final bool storeOpen;
@@ -1364,6 +1552,7 @@ class MainShellScreen extends StatefulWidget {
     super.key,
     required this.userName,
     required this.userPhone,
+    required this.userEmail,
     required this.profilePhotoPath,
     required this.isAdmin,
     required this.storeOpen,
@@ -1412,6 +1601,7 @@ class _MainShellScreenState extends State<MainShellScreen> {
         builder: (_) => AccountScreen(
           userName: widget.userName,
           userPhone: widget.userPhone,
+          userEmail: widget.userEmail,
           profilePhotoPath: widget.profilePhotoPath,
           isAdmin: widget.isAdmin,
           onUpdatePin: widget.onUpdatePin,
@@ -1424,6 +1614,7 @@ class _MainShellScreenState extends State<MainShellScreen> {
                     MaterialPageRoute(
                       builder: (_) => AdminDashboardScreen(
                         adminPhone: widget.userPhone,
+                        adminEmail: widget.userEmail,
                         storeOpen: widget.storeOpen,
                         offers: widget.offers,
                         ads: widget.ads,
@@ -1455,13 +1646,18 @@ class _MainShellScreenState extends State<MainShellScreen> {
         ads: widget.ads,
         onProfileTap: _openAccount,
         onNetworkTap: _openNetwork,
+        onJumpToSupport: () => setState(() => _navIndex = 3),
       ),
-      const ReferTabScreen(),
+      ReferTabScreen(
+        onBackHome: () => setState(() => _navIndex = 0),
+      ),
       HistoryTabScreen(
         orders: widget.orders,
         onClearOrders: widget.onClearOrders,
       ),
-      const SupportTabScreen(),
+      SupportTabScreen(
+        onBackHome: () => setState(() => _navIndex = 0),
+      ),
     ];
 
     return Scaffold(
@@ -1470,9 +1666,9 @@ class _MainShellScreenState extends State<MainShellScreen> {
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _navIndex,
         type: BottomNavigationBarType.fixed,
-        backgroundColor: BDSColors.pureWhite,
-        selectedItemColor: BDSColors.primaryGreen,
-        unselectedItemColor: BDSColors.blackText,
+        backgroundColor: const Color(0xFF0B0E11),
+        selectedItemColor: BDSColors.lightGreenAccent,
+        unselectedItemColor: BDSColors.pureWhite,
         onTap: (idx) => setState(() => _navIndex = idx),
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
@@ -1492,6 +1688,7 @@ class HomeTabScreen extends StatelessWidget {
   final List<AdItem> ads;
   final VoidCallback onProfileTap;
   final ValueChanged<String> onNetworkTap;
+  final VoidCallback onJumpToSupport;
 
   const HomeTabScreen({
     super.key,
@@ -1501,107 +1698,230 @@ class HomeTabScreen extends StatelessWidget {
     required this.ads,
     required this.onProfileTap,
     required this.onNetworkTap,
+    required this.onJumpToSupport,
   });
 
-  Widget _buildAdLeading(AdItem ad) {
-    if (ad.mediaType == 'image' &&
-        ad.mediaPath != null &&
-        ad.mediaPath!.isNotEmpty &&
-        File(ad.mediaPath!).existsSync()) {
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(14),
-        child: Image.file(
-          File(ad.mediaPath!),
-          width: 64,
-          height: 64,
-          fit: BoxFit.cover,
-        ),
-      );
-    }
+  Widget _buildPromoBanner(BuildContext context) {
+    final primaryAd = ads.isNotEmpty
+        ? ads.first
+        : const AdItem(
+            id: 'ad_default',
+            title: 'Fast Data & Minutes A...',
+            subtitle: 'Instant M-Pesa STK Push checkout with clear bundle details.',
+            iconCodePoint: 0xe0e8,
+            mediaType: 'ad',
+          );
+
+    final hasImage = primaryAd.mediaType == 'image' &&
+        primaryAd.mediaPath != null &&
+        primaryAd.mediaPath!.isNotEmpty &&
+        File(primaryAd.mediaPath!).existsSync();
+
     return Container(
-      width: 56,
-      height: 56,
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: BDSColors.pureWhite,
-        borderRadius: BorderRadius.circular(14),
+        gradient: const LinearGradient(
+          colors: [Color(0xFFEAF9F1), Color(0xFF86EFAC)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFBBF7D0)),
       ),
-      child: Icon(ad.icon, size: 30, color: BDSColors.primaryGreen),
+      child: Row(
+        children: [
+          Container(
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(
+              color: BDSColors.pureWhite,
+              shape: BoxShape.circle,
+              border: Border.all(color: BDSColors.primaryGreen, width: 1.5),
+            ),
+            child: hasImage
+                ? ClipOval(
+                    child: Image.file(
+                      File(primaryAd.mediaPath!),
+                      fit: BoxFit.cover,
+                    ),
+                  )
+                : Icon(
+                    primaryAd.mediaType == 'video'
+                        ? Icons.play_circle_fill
+                        : Icons.bolt,
+                    color: const Color(0xFF16A34A),
+                    size: 30,
+                  ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  primaryAd.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: BDSColors.blackText,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  primaryAd.subtitle,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w400,
+                    color: Color(0xFF1F2937),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: const Color(0xFF14532D),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'STK',
+                  style: TextStyle(
+                    color: BDSColors.pureWhite,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  'Push',
+                  style: TextStyle(
+                    color: BDSColors.pureWhite,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                SizedBox(height: 4),
+                Icon(Icons.check_circle, color: BDSColors.lightGreenAccent, size: 18),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
-  Widget _buildCompanyLogo(String company) {
-    switch (company) {
-      case 'SAFARICOM':
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          decoration: BoxDecoration(
-            color: BDSColors.lightGreenBadgeBg,
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: const Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.cell_tower, size: 16, color: BDSColors.primaryGreen),
-              SizedBox(width: 5),
-              Text('Safaricom', style: TextStyle(color: BDSColors.primaryGreen, fontSize: 12)),
-            ],
-          ),
-        );
-      case 'AIRTEL':
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          decoration: BoxDecoration(
-            color: const Color(0xFFFDECEC),
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: const Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.signal_cellular_alt, size: 16, color: BDSColors.dangerRed),
-              SizedBox(width: 5),
-              Text('Airtel', style: TextStyle(color: BDSColors.dangerRed, fontSize: 12)),
-            ],
-          ),
-        );
-      case 'TELKOM':
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          decoration: BoxDecoration(
-            color: const Color(0xFFEAF2FE),
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: const Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.network_cell, size: 16, color: Color(0xFF1D4ED8)),
-              SizedBox(width: 5),
-              Text('Telkom', style: TextStyle(color: Color(0xFF1D4ED8), fontSize: 12)),
-            ],
-          ),
-        );
-      default:
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          decoration: BoxDecoration(
-            color: BDSColors.amberBg,
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: const Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.router, size: 16, color: BDSColors.amberText),
-              SizedBox(width: 5),
-              Text('Faiba', style: TextStyle(color: BDSColors.amberText, fontSize: 12)),
-            ],
-          ),
-        );
-    }
+  Widget _buildNetworkCard({
+    required String company,
+    required String label,
+    required Color accentColor,
+    required Color badgeBg,
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+        decoration: BoxDecoration(
+          color: BDSColors.pureWhite,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: const Color(0xFFE5E7EB)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.06),
+              blurRadius: 10,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon, color: accentColor, size: 22),
+                const SizedBox(width: 4),
+                Flexible(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      fontStyle: FontStyle.italic,
+                      color: accentColor,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Icon(Icons.signal_cellular_alt, color: accentColor, size: 15),
+              ],
+            ),
+            Column(
+              children: [
+                Text(
+                  company,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: BDSColors.blackText,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                const Text(
+                  'Data · Airtime · Bundles',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w400,
+                    color: BDSColors.greyText,
+                  ),
+                ),
+              ],
+            ),
+            Container(
+              width: 106,
+              height: 32,
+              decoration: BoxDecoration(
+                color: accentColor,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    'Open',
+                    style: TextStyle(
+                      color: BDSColors.pureWhite,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  SizedBox(width: 4),
+                  Icon(Icons.arrow_forward, color: BDSColors.pureWhite, size: 15),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    const companies = ['SAFARICOM', 'AIRTEL', 'TELKOM', 'FAIBA'];
-
     return SafeArea(
       child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
@@ -1611,47 +1931,89 @@ class HomeTabScreen extends StatelessWidget {
             Row(
               children: [
                 Container(
-                  width: 38,
-                  height: 38,
+                  width: 46,
+                  height: 46,
                   decoration: BoxDecoration(
-                    color: BDSColors.softGreenBg,
-                    borderRadius: BorderRadius.circular(10),
+                    color: BDSColors.pureWhite,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFF16A34A), width: 2),
                   ),
-                  child: const Icon(Icons.bolt, color: BDSColors.primaryGreen),
+                  child: const Center(
+                    child: Text(
+                      'BDS',
+                      style: TextStyle(
+                        color: Color(0xFF15803D),
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
                 ),
                 const SizedBox(width: 10),
                 const Expanded(
-                  child: Text(
-                    Catalogue68.appName,
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        Catalogue68.displayBrandName,
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                          color: BDSColors.blackText,
+                        ),
+                      ),
+                      Text(
+                        Catalogue68.brandSubline,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          fontStyle: FontStyle.italic,
+                          color: Color(0xFF15803D),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 GestureDetector(
                   onTap: onProfileTap,
                   child: buildAvatarWidget(
                     imagePath: profilePhotoPath,
-                    radius: 20,
-                    bgColor: BDSColors.primaryGreen,
+                    radius: 21,
+                    bgColor: const Color(0xFF111827),
                     iconColor: BDSColors.pureWhite,
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 16),
-            const Text(
-              'Welcome Back',
-              style: TextStyle(fontSize: 21, fontWeight: FontWeight.w500),
+            const SizedBox(height: 14),
+            const Row(
+              children: [
+                Text(
+                  'Welcome Back',
+                  style: TextStyle(
+                    fontSize: 25,
+                    fontWeight: FontWeight.w800,
+                    color: BDSColors.blackText,
+                  ),
+                ),
+                SizedBox(width: 6),
+                Text('👋', style: TextStyle(fontSize: 22)),
+              ],
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 2),
             const Text(
               Catalogue68.tagline,
-              style: TextStyle(fontSize: 14, color: BDSColors.greyText),
+              style: TextStyle(
+                fontSize: 13.5,
+                fontWeight: FontWeight.w400,
+                color: Color(0xFF374151),
+              ),
             ),
             if (!storeOpen) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
                   color: BDSColors.amberBg,
                   borderRadius: BorderRadius.circular(12),
@@ -1662,100 +2024,81 @@ class HomeTabScreen extends StatelessWidget {
                 ),
               ),
             ],
-            const SizedBox(height: 16),
-            if (ads.isNotEmpty) ...[
-              SizedBox(
-                height: 128,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: ads.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 12),
-                  itemBuilder: (context, idx) {
-                    final ad = ads[idx];
-                    return Container(
-                      width: 280,
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: BDSColors.softGreenBg,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: BDSColors.lightGreenAccent),
-                      ),
-                      child: Row(
-                        children: [
-                          _buildAdLeading(ad),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  ad.title,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  ad.mediaType == 'video' && ad.mediaPath != null
-                                      ? '${ad.subtitle} (Video attached)'
-                                      : ad.subtitle,
-                                  maxLines: 3,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(fontSize: 12, color: BDSColors.greyText),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(height: 18),
-            ],
-            GridView.builder(
+            const SizedBox(height: 14),
+            _buildPromoBanner(context),
+            const SizedBox(height: 14),
+            GridView.count(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
-              itemCount: companies.length,
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                mainAxisSpacing: 12,
-                crossAxisSpacing: 12,
-                childAspectRatio: 1.35,
+              crossAxisCount: 2,
+              mainAxisSpacing: 12,
+              crossAxisSpacing: 12,
+              childAspectRatio: 1.05,
+              children: [
+                _buildNetworkCard(
+                  company: 'SAFARICOM',
+                  label: 'Safaricom',
+                  accentColor: const Color(0xFF16A34A),
+                  badgeBg: BDSColors.lightGreenBadgeBg,
+                  icon: Icons.cell_tower,
+                  onTap: () => onNetworkTap('SAFARICOM'),
+                ),
+                _buildNetworkCard(
+                  company: 'AIRTEL',
+                  label: 'airtel',
+                  accentColor: const Color(0xFFDC2626),
+                  badgeBg: const Color(0xFFFDECEC),
+                  icon: Icons.signal_cellular_alt,
+                  onTap: () => onNetworkTap('AIRTEL'),
+                ),
+                _buildNetworkCard(
+                  company: 'TELKOM',
+                  label: 'Telkom',
+                  accentColor: const Color(0xFF0284C7),
+                  badgeBg: const Color(0xFFE0F2FE),
+                  icon: Icons.network_cell,
+                  onTap: () => onNetworkTap('TELKOM'),
+                ),
+                _buildNetworkCard(
+                  company: 'FAIBA',
+                  label: 'Faiba',
+                  accentColor: const Color(0xFFF59E0B),
+                  badgeBg: BDSColors.amberBg,
+                  icon: Icons.router,
+                  onTap: () => onNetworkTap('FAIBA'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFECFDF5),
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: const Color(0xFFBBF7D0)),
               ),
-              itemBuilder: (context, index) {
-                final company = companies[index];
-                return GestureDetector(
-                  onTap: () => onNetworkTap(company),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: BDSColors.pureWhite,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: BDSColors.cardBorder),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
-                          blurRadius: 8,
-                          offset: const Offset(0, 3),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        _buildCompanyLogo(company),
-                        const SizedBox(height: 10),
-                        Text(
-                          company,
-                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
-                        ),
-                      ],
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Icon(Icons.verified_user, color: Color(0xFF16A34A), size: 20),
+                  const Expanded(
+                    child: Text(
+                      'Secure · Instant · Always Connected',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: Color(0xFF111827),
+                      ),
                     ),
                   ),
-                );
-              },
+                  GestureDetector(
+                    onTap: onJumpToSupport,
+                    child: const Icon(Icons.headset_mic, color: Color(0xFF111827), size: 20),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -1778,108 +2121,278 @@ class NetworkOffersScreen extends StatelessWidget {
     required this.onRecordStkAttempt,
   });
 
+  String _formatKshPrice(OfferModel item) {
+    if (item.fixedPriceKes != null) {
+      return 'Ksh ${item.fixedPriceKes}';
+    }
+    if (item.priceLabel.toLowerCase().startsWith('kes ')) {
+      return 'Ksh ${item.priceLabel.substring(4)}';
+    }
+    return item.priceLabel;
+  }
+
+  String _badgeLabel(OfferModel item, int index) {
+    final lowerVal = item.validity.toLowerCase();
+    if (lowerVal.contains('11pm') || lowerVal.contains('midnight')) {
+      return 'Available 11PM – 7PM';
+    }
+    if (lowerVal.contains('1hr')) {
+      return '1 hour · Patamore';
+    }
+    if (lowerVal.contains('7days') || lowerVal.contains('30days')) {
+      return 'Once a day';
+    }
+    return index.isEven ? 'Many times' : 'Once a day';
+  }
+
+  bool _isAmberBadge(String badgeText) {
+    final lower = badgeText.toLowerCase();
+    return lower.contains('once a day') || lower.contains('available');
+  }
+
+  bool _isOfferAvailable(OfferModel item) {
+    if (!storeOpen) return false;
+    final lowerVal = item.validity.toLowerCase();
+    if (lowerVal.contains('unavailable')) return false;
+    return true;
+  }
+
   @override
   Widget build(BuildContext context) {
     final visibleOffers =
         offers.where((o) => o.network == network && o.isVisible).toList();
 
     return Scaffold(
-      backgroundColor: BDSColors.pureWhite,
+      backgroundColor: DataPageColors.pageBg,
       appBar: AppBar(
         backgroundColor: BDSColors.pureWhite,
-        title: Text(network),
-      ),
-      body: Column(
-        children: [
-          if (!storeOpen)
-            Container(
-              width: double.infinity,
-              color: BDSColors.amberBg,
-              padding: const EdgeInsets.all(10),
-              child: const Text(
-                'Store Closed: Browse only',
-                style: TextStyle(color: BDSColors.amberText),
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        leading: Padding(
+          padding: const EdgeInsets.only(left: 10),
+          child: CircleAvatar(
+            backgroundColor: const Color(0xFFDCFCE7),
+            child: IconButton(
+              icon: const Icon(Icons.arrow_back, color: Color(0xFF15803D)),
+              onPressed: () => Navigator.pop(context),
+            ),
+          ),
+        ),
+        title: const Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              Catalogue68.displayBrandName,
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: DataPageColors.titleBlack,
               ),
             ),
-          Expanded(
-            child: visibleOffers.isEmpty
-                ? const Center(child: Text('No active offers available for this network.'))
-                : ListView.separated(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: visibleOffers.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 12),
-                    itemBuilder: (context, index) {
-                      final item = visibleOffers[index];
-                      return Container(
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: BDSColors.pureWhite,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: BDSColors.cardBorder),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.05),
-                              blurRadius: 8,
-                              offset: const Offset(0, 3),
-                            ),
-                          ],
-                        ),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 44,
-                              height: 44,
-                              decoration: BoxDecoration(
-                                color: BDSColors.softGreenBg,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: const Icon(Icons.card_giftcard, color: BDSColors.primaryGreen),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(item.name, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    '${item.priceLabel}  •  ${item.validity}',
-                                    style: const TextStyle(fontSize: 13, color: BDSColors.greyText),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            OutlinedButton(
-                              onPressed: storeOpen
-                                  ? () {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (_) => BuyConfirmScreen(
-                                            offer: item,
-                                            storeOpen: storeOpen,
-                                            onRecordStkAttempt: onRecordStkAttempt,
-                                          ),
-                                        ),
-                                      );
-                                    }
-                                  : null,
-                              style: OutlinedButton.styleFrom(
-                                backgroundColor: BDSColors.pureWhite,
-                                foregroundColor: BDSColors.primaryGreen,
-                                side: const BorderSide(color: BDSColors.primaryGreen, width: 1.4),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                              ),
-                              child: const Text('Buy'),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
+            Text(
+              Catalogue68.brandSubline,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                fontStyle: FontStyle.italic,
+                color: Color(0xFF15803D),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: Badge(
+              label: Text('${visibleOffers.length}'),
+              backgroundColor: const Color(0xFFEF4444),
+              child: const CircleAvatar(
+                backgroundColor: Color(0xFFDCFCE7),
+                child: Icon(Icons.shopping_cart, color: Color(0xFF15803D), size: 20),
+              ),
+            ),
           ),
         ],
+      ),
+      body: visibleOffers.isEmpty
+          ? const Center(
+              child: Text(
+                'No active offers available for this network.',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w400,
+                  color: DataPageColors.subtitleGrey,
+                ),
+              ),
+            )
+          : GridView.builder(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 76),
+              itemCount: visibleOffers.length,
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                mainAxisSpacing: 12,
+                crossAxisSpacing: 12,
+                mainAxisExtent: 215,
+              ),
+              itemBuilder: (context, index) {
+                final item = visibleOffers[index];
+                final badgeText = _badgeLabel(item, index);
+                final isAmber = _isAmberBadge(badgeText);
+                final available = _isOfferAvailable(item);
+                final priceText = _formatKshPrice(item);
+
+                return Container(
+                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+                  decoration: BoxDecoration(
+                    color: DataPageColors.cardBg,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: DataPageColors.cardBorder,
+                      width: 1,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.04),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: isAmber
+                              ? DataPageColors.badgeAmberBg
+                              : DataPageColors.badgeGreenBg,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          badgeText,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: isAmber
+                                ? DataPageColors.badgeAmberText
+                                : DataPageColors.badgeGreenText,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        item.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w800,
+                          color: DataPageColors.titleBlack,
+                          height: 1.15,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        item.validity,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w400,
+                          color: DataPageColors.subtitleGrey,
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        priceText,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: DataPageColors.priceBlack,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 38,
+                        child: available
+                            ? ElevatedButton.icon(
+                                onPressed: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => BuyConfirmScreen(
+                                        offer: item,
+                                        storeOpen: storeOpen,
+                                        onRecordStkAttempt: onRecordStkAttempt,
+                                      ),
+                                    ),
+                                  );
+                                },
+                                icon: const Icon(Icons.shopping_cart, size: 16),
+                                label: const Text(
+                                  'Buy',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                    color: DataPageColors.buyTextWhite,
+                                  ),
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: DataPageColors.buyButtonGreen,
+                                  foregroundColor: DataPageColors.buyTextWhite,
+                                  elevation: 0,
+                                  padding: EdgeInsets.zero,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                ),
+                              )
+                            : OutlinedButton.icon(
+                                onPressed: null,
+                                icon: const Icon(Icons.access_time, size: 15),
+                                label: const Text(
+                                  'Unavailable now',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                    color: DataPageColors.unavailableText,
+                                  ),
+                                ),
+                                style: OutlinedButton.styleFrom(
+                                  backgroundColor: DataPageColors.cardBg,
+                                  disabledForegroundColor:
+                                      DataPageColors.unavailableText,
+                                  side: const BorderSide(
+                                    color: DataPageColors.unavailableBorder,
+                                    width: 1,
+                                  ),
+                                  padding: EdgeInsets.zero,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                ),
+                              ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => openWhatsAppDirect(context),
+        backgroundColor: const Color(0xFF15803D),
+        foregroundColor: BDSColors.pureWhite,
+        icon: const Icon(Icons.chat_bubble_outline),
+        label: const Text(
+          'Chat',
+          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+        ),
       ),
     );
   }
@@ -1903,7 +2416,6 @@ class BuyConfirmScreen extends StatefulWidget {
 
 class _BuyConfirmScreenState extends State<BuyConfirmScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _recipientCtrl = TextEditingController();
   final _paymentCtrl = TextEditingController();
   final _amountCtrl = TextEditingController();
   bool _isSending = false;
@@ -1915,6 +2427,13 @@ class _BuyConfirmScreenState extends State<BuyConfirmScreen> {
     if (!widget.offer.isFlexibleAmount && widget.offer.fixedPriceKes != null) {
       _amountCtrl.text = widget.offer.fixedPriceKes.toString();
     }
+  }
+
+  @override
+  void dispose() {
+    _paymentCtrl.dispose();
+    _amountCtrl.dispose();
+    super.dispose();
   }
 
   String? _validatePhone(String? v) {
@@ -1950,7 +2469,6 @@ class _BuyConfirmScreenState extends State<BuyConfirmScreen> {
 
     final amount = int.parse(_amountCtrl.text.trim());
     final orderId = 'ORD-${DateTime.now().millisecondsSinceEpoch}';
-    final recipient = _recipientCtrl.text.trim();
     final paymentPhone = _paymentCtrl.text.trim();
 
     setState(() {
@@ -1975,7 +2493,7 @@ class _BuyConfirmScreenState extends State<BuyConfirmScreen> {
           orderId: orderId,
           network: widget.offer.network,
           bundleName: widget.offer.name,
-          recipientPhone: recipient,
+          recipientPhone: paymentPhone,
           paymentPhone: paymentPhone,
           amountKes: amount,
           paymentRef: checkoutId,
@@ -1996,7 +2514,7 @@ class _BuyConfirmScreenState extends State<BuyConfirmScreen> {
           orderId: orderId,
           network: widget.offer.network,
           bundleName: widget.offer.name,
-          recipientPhone: recipient,
+          recipientPhone: paymentPhone,
           paymentPhone: paymentPhone,
           amountKes: amount,
           paymentRef: 'STK Request Failed',
@@ -2053,17 +2571,6 @@ class _BuyConfirmScreenState extends State<BuyConfirmScreen> {
               ),
               const SizedBox(height: 14),
               TextFormField(
-                controller: _recipientCtrl,
-                keyboardType: TextInputType.phone,
-                validator: _validatePhone,
-                decoration: const InputDecoration(
-                  labelText: 'Recipient Phone Number',
-                  hintText: '07XXXXXXXX',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
                 controller: _paymentCtrl,
                 keyboardType: TextInputType.phone,
                 validator: _validatePhone,
@@ -2117,7 +2624,9 @@ class _BuyConfirmScreenState extends State<BuyConfirmScreen> {
 }
 
 class ReferTabScreen extends StatefulWidget {
-  const ReferTabScreen({super.key});
+  final VoidCallback? onBackHome;
+
+  const ReferTabScreen({super.key, this.onBackHome});
 
   @override
   State<ReferTabScreen> createState() => _ReferTabScreenState();
@@ -2143,71 +2652,267 @@ class _ReferTabScreenState extends State<ReferTabScreen> {
     );
   }
 
+  Widget _stepRow(String numText, String desc) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        CircleAvatar(
+          radius: 13,
+          backgroundColor: const Color(0xFF16A34A),
+          child: Text(
+            numText,
+            style: const TextStyle(
+              color: BDSColors.pureWhite,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            desc,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w400,
+              color: Color(0xFF1F2937),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: BDSColors.pureWhite,
-      appBar: AppBar(
-        backgroundColor: BDSColors.pureWhite,
-        title: const Text('Refer'),
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          const Text(
-            'Share the App Download Link',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w500, color: BDSColors.primaryGreen),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'Generate a download link for Bingwa Data Swift and share it with friends so they can download the app.',
-            style: TextStyle(color: BDSColors.greyText),
-          ),
-          const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: BDSColors.softGreenBg,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: BDSColors.lightGreenAccent),
-            ),
-            child: SelectableText(
-              _generatedLink,
-              style: const TextStyle(fontSize: 14),
-            ),
-          ),
-          const SizedBox(height: 14),
-          SizedBox(
-            width: double.infinity,
-            height: 46,
-            child: ElevatedButton.icon(
-              onPressed: _generateAppDownloadLink,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Generate Download Link'),
-            ),
-          ),
-          const SizedBox(height: 10),
-          SizedBox(
-            width: double.infinity,
-            height: 46,
-            child: OutlinedButton.icon(
-              onPressed: _copyLink,
-              icon: const Icon(Icons.copy, color: BDSColors.primaryGreen),
-              label: const Text('Copy Download Link', style: TextStyle(color: BDSColors.primaryGreen)),
-              style: OutlinedButton.styleFrom(
-                side: const BorderSide(color: BDSColors.primaryGreen),
+      backgroundColor: const Color(0xFFF0FDF4),
+      body: SafeArea(
+        child: Column(
+          children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Color(0xFF15803D), Color(0xFF22C55E)],
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                ),
+              ),
+              child: Row(
+                children: [
+                  GestureDetector(
+                    onTap: widget.onBackHome,
+                    child: const Icon(Icons.arrow_back, color: BDSColors.pureWhite),
+                  ),
+                  const SizedBox(width: 14),
+                  const Expanded(
+                    child: Text(
+                      'Refer',
+                      style: TextStyle(
+                        color: BDSColors.pureWhite,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  GestureDetector(
+                    onTap: _copyLink,
+                    child: const Icon(Icons.share, color: BDSColors.pureWhite),
+                  ),
+                ],
               ),
             ),
-          ),
-          const SizedBox(height: 20),
-          const Text('How It Works', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
-          const SizedBox(height: 8),
-          const Text('1. Tap Generate Download Link to create a fresh app download link.'),
-          const SizedBox(height: 6),
-          const Text('2. Tap Copy Download Link and paste it in your chats.'),
-          const SizedBox(height: 6),
-          const Text('3. Friends open the link directly to download Bingwa Data Swift.'),
-        ],
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.all(14),
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: BDSColors.pureWhite,
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          blurRadius: 10,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              width: 78,
+                              height: 78,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFDCFCE7),
+                                borderRadius: BorderRadius.circular(18),
+                              ),
+                              child: const Icon(
+                                Icons.group,
+                                size: 44,
+                                color: Color(0xFF15803D),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Container(
+                              width: 3,
+                              height: 112,
+                              color: const Color(0xFF86EFAC),
+                            ),
+                            const SizedBox(width: 10),
+                            const Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Share the App',
+                                    style: TextStyle(
+                                      fontSize: 21,
+                                      fontWeight: FontWeight.w800,
+                                      color: BDSColors.blackText,
+                                    ),
+                                  ),
+                                  Text(
+                                    'Download Link',
+                                    style: TextStyle(
+                                      fontSize: 21,
+                                      fontWeight: FontWeight.w800,
+                                      color: Color(0xFF15803D),
+                                    ),
+                                  ),
+                                  SizedBox(height: 6),
+                                  Text(
+                                    'Generate a download link for Bingwa Data Swift and share it with friends so they can download the app.',
+                                    style: TextStyle(
+                                      fontSize: 12.5,
+                                      color: Color(0xFF374151),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFDCFCE7),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: const Color(0xFF86EFAC)),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.link, color: Color(0xFF15803D)),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: SelectableText(
+                                  _generatedLink,
+                                  style: const TextStyle(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w500,
+                                    color: BDSColors.blackText,
+                                  ),
+                                ),
+                              ),
+                              GestureDetector(
+                                onTap: _copyLink,
+                                child: const Icon(Icons.copy, color: Color(0xFF15803D), size: 20),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 48,
+                          child: ElevatedButton.icon(
+                            onPressed: _generateAppDownloadLink,
+                            icon: const Icon(Icons.refresh),
+                            label: const Text(
+                              'Generate Download Link',
+                              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF15803D),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(24),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 48,
+                          child: OutlinedButton.icon(
+                            onPressed: _copyLink,
+                            icon: const Icon(Icons.copy, color: Color(0xFF15803D)),
+                            label: const Text(
+                              'Copy Download Link',
+                              style: TextStyle(
+                                color: Color(0xFF15803D),
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: Color(0xFF15803D), width: 1.5),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(24),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF0FDF4),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: const Color(0xFFBBF7D0)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Row(
+                                children: [
+                                  Icon(Icons.lightbulb, color: Color(0xFF16A34A), size: 20),
+                                  SizedBox(width: 6),
+                                  Text(
+                                    'How It Works',
+                                    style: TextStyle(
+                                      fontSize: 17,
+                                      fontWeight: FontWeight.w800,
+                                      color: Color(0xFF15803D),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              _stepRow('1', 'Tap Generate Download Link to create a fresh app download link.'),
+                              const SizedBox(height: 8),
+                              _stepRow('2', 'Tap Copy Download Link and paste it in your chats.'),
+                              const SizedBox(height: 8),
+                              _stepRow('3', 'Friends open the link directly to download Bingwa Data Swift.'),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -2297,91 +3002,243 @@ class HistoryTabScreen extends StatelessWidget {
 }
 
 class SupportTabScreen extends StatelessWidget {
-  const SupportTabScreen({super.key});
+  final VoidCallback? onBackHome;
+
+  const SupportTabScreen({super.key, this.onBackHome});
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: BDSColors.pureWhite,
-      appBar: AppBar(
-        backgroundColor: BDSColors.pureWhite,
-        title: const Text('Support'),
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          const Text(
-            'Customer Support',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w500, color: BDSColors.primaryGreen),
-          ),
-          const SizedBox(height: 6),
-          const Text(
-            'Need help with an order or bundle request? Reach out directly using the buttons below.',
-            style: TextStyle(color: BDSColors.greyText),
-          ),
-          const SizedBox(height: 18),
-          SizedBox(
-            width: double.infinity,
-            height: 50,
-            child: ElevatedButton.icon(
-              onPressed: () => openWhatsAppDirect(context),
-              icon: const Icon(Icons.chat),
-              label: const Text('WhatsApp'),
-            ),
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            height: 50,
-            child: OutlinedButton.icon(
-              onPressed: () => openCallDirect(context),
-              icon: const Icon(Icons.call, color: BDSColors.primaryGreen),
-              label: const Text('Call', style: TextStyle(color: BDSColors.primaryGreen)),
-              style: OutlinedButton.styleFrom(
-                side: const BorderSide(color: BDSColors.primaryGreen, width: 1.4),
+      backgroundColor: const Color(0xFFF0FDF4),
+      body: SafeArea(
+        child: Column(
+          children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Color(0xFF15803D), Color(0xFF22C55E)],
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                ),
+              ),
+              child: Row(
+                children: [
+                  GestureDetector(
+                    onTap: onBackHome,
+                    child: const Icon(Icons.arrow_back, color: BDSColors.pureWhite),
+                  ),
+                  const SizedBox(width: 14),
+                  const Expanded(
+                    child: Text(
+                      'Support',
+                      style: TextStyle(
+                        color: BDSColors.pureWhite,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  const Icon(Icons.headset_mic, color: BDSColors.pureWhite),
+                ],
               ),
             ),
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            height: 50,
-            child: ElevatedButton.icon(
-              onPressed: () => openWhatsAppGroupDirect(context),
-              icon: const Icon(Icons.groups),
-              label: const Text('Join Bingwa Data Swift WhatsApp Group'),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.all(14),
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: BDSColors.pureWhite,
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          blurRadius: 10,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Customer Support',
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w800,
+                            color: BDSColors.blackText,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Need help with an order or bundle request? Reach out directly using the buttons below.',
+                          style: TextStyle(fontSize: 13, color: Color(0xFF374151)),
+                        ),
+                        const SizedBox(height: 16),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 50,
+                          child: ElevatedButton.icon(
+                            onPressed: () => openWhatsAppDirect(context),
+                            icon: const Icon(Icons.chat),
+                            label: const Text(
+                              'WhatsApp',
+                              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF15803D),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(25),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 50,
+                          child: OutlinedButton.icon(
+                            onPressed: () => openCallDirect(context),
+                            icon: const Icon(Icons.call, color: Color(0xFF15803D)),
+                            label: const Text(
+                              'Call',
+                              style: TextStyle(
+                                color: Color(0xFF15803D),
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: Color(0xFF15803D), width: 1.5),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(25),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 50,
+                          child: ElevatedButton.icon(
+                            onPressed: () => openWhatsAppGroupDirect(context),
+                            icon: const Icon(Icons.groups),
+                            label: const Expanded(
+                              child: Text(
+                                'Join Bingwa Data Swift WhatsApp Group',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+                              ),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF15803D),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(25),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 18),
+                        const Row(
+                          children: [
+                            Icon(Icons.info, color: Color(0xFF15803D), size: 20),
+                            SizedBox(width: 6),
+                            Text(
+                              'Helpful Information',
+                              style: TextStyle(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w800,
+                                color: BDSColors.blackText,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF9FAFB),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: const Color(0xFFE5E7EB)),
+                          ),
+                          child: const Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(Icons.bolt, color: Color(0xFF16A34A), size: 28),
+                              SizedBox(width: 8),
+                              VerticalDivider(width: 12, thickness: 2, color: Color(0xFF16A34A)),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Direct M-Pesa STK Push',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 14,
+                                        color: BDSColors.blackText,
+                                      ),
+                                    ),
+                                    SizedBox(height: 3),
+                                    Text(
+                                      'Payments are initiated via M-Pesa STK Push and verified through server callback confirmation.',
+                                      style: TextStyle(color: Color(0xFF374151), fontSize: 12.5),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF9FAFB),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: const Color(0xFFE5E7EB)),
+                          ),
+                          child: const Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(Icons.verified_user, color: Color(0xFF16A34A), size: 28),
+                              SizedBox(width: 8),
+                              VerticalDivider(width: 12, thickness: 2, color: Color(0xFF16A34A)),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Recipient Number Check',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 14,
+                                        color: BDSColors.blackText,
+                                      ),
+                                    ),
+                                    SizedBox(height: 3),
+                                    Text(
+                                      'Confirm the recipient phone number carefully before approving your M-Pesa STK Push prompt.',
+                                      style: TextStyle(color: Color(0xFF374151), fontSize: 12.5),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: 22),
-          const Text('Helpful Information', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
-          const SizedBox(height: 10),
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: BDSColors.pureWhite,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: BDSColors.cardBorder),
-            ),
-            child: const Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Direct M-Pesa STK Push', style: TextStyle(fontWeight: FontWeight.w500)),
-                SizedBox(height: 4),
-                Text(
-                  'Payments are initiated via M-Pesa STK Push and verified through server callback confirmation.',
-                  style: TextStyle(color: BDSColors.greyText, fontSize: 13),
-                ),
-                SizedBox(height: 12),
-                Text('Recipient Number Check', style: TextStyle(fontWeight: FontWeight.w500)),
-                SizedBox(height: 4),
-                Text(
-                  'Confirm the recipient phone number carefully before approving your M-Pesa STK Push prompt.',
-                  style: TextStyle(color: BDSColors.greyText, fontSize: 13),
-                ),
-              ],
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -2390,6 +3247,7 @@ class SupportTabScreen extends StatelessWidget {
 class AccountScreen extends StatelessWidget {
   final String userName;
   final String userPhone;
+  final String userEmail;
   final String? profilePhotoPath;
   final bool isAdmin;
   final ValueChanged<String> onUpdatePin;
@@ -2401,6 +3259,7 @@ class AccountScreen extends StatelessWidget {
     super.key,
     required this.userName,
     required this.userPhone,
+    required this.userEmail,
     required this.profilePhotoPath,
     required this.isAdmin,
     required this.onUpdatePin,
@@ -2475,7 +3334,10 @@ class AccountScreen extends StatelessWidget {
                   children: [
                     Text('Name: $userName', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
                     const SizedBox(height: 4),
-                    Text('Account: $userPhone', style: const TextStyle(color: BDSColors.greyText)),
+                    Text(
+                      userEmail.isNotEmpty ? 'Email: $userEmail' : 'Phone: $userPhone',
+                      style: const TextStyle(color: BDSColors.greyText),
+                    ),
                   ],
                 ),
               ),
@@ -2586,6 +3448,7 @@ class AccountScreen extends StatelessWidget {
 
 class AdminDashboardScreen extends StatefulWidget {
   final String adminPhone;
+  final String adminEmail;
   final bool storeOpen;
   final List<OfferModel> offers;
   final List<AdItem> ads;
@@ -2601,6 +3464,7 @@ class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({
     super.key,
     required this.adminPhone,
+    required this.adminEmail,
     required this.storeOpen,
     required this.offers,
     required this.ads,
@@ -2786,6 +3650,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final authorized = _checkIsAdmin(
+      phone: widget.adminPhone,
+      email: widget.adminEmail,
+      pin: Catalogue68.adminAccessCode,
+    );
+    if (!authorized) {
+      return const Scaffold(
+        body: Center(child: Text('Unauthorized access.')),
+      );
+    }
+
     final filteredOffers = _filterNet == 'ALL'
         ? widget.offers
         : widget.offers.where((o) => o.network == _filterNet).toList();
@@ -2802,6 +3677,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           Text(
             'Total Offers: ${widget.offers.length} | Logged Orders: ${widget.orders.length}',
             style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            RemoteSyncService.isConfigured
+                ? 'Global Broadcast Sync: Active (updates reach all installed apps)'
+                : 'Global Broadcast Sync: Local cache active (configure RemoteSyncService URL/Key for remote push)',
+            style: const TextStyle(fontSize: 12, color: BDSColors.greyText),
           ),
           const SizedBox(height: 12),
           SwitchListTile(
