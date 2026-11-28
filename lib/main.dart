@@ -10,7 +10,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'mpesa_service.dart';
 
-const String kSupabaseUrl = 'https://fjorzgowpirsfohozlhd.supabase.co';
+const String kSupabaseUrl = 'https://fjorzgowplrsfohozlhd.supabase.co';
 const String kSupabasePublishableKey =
     'sb_publishable_cNCrYuy6BDDTYC2j4gYSYw_P6cnWVVK';
 
