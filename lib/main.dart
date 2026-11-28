@@ -3352,13 +3352,11 @@ class SupportTabScreen extends StatelessWidget {
                           child: ElevatedButton.icon(
                             onPressed: () => openWhatsAppGroupDirect(context),
                             icon: const Icon(Icons.groups),
-                            label: const Expanded(
-                              child: Text(
-                                'Join Bingwa Data Swift WhatsApp Group',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
-                              ),
+                            label: const Text(
+                              'Join Bingwa Data Swift WhatsApp Group',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
                             ),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: const Color(0xFF15803D),
