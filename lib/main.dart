@@ -251,11 +251,6 @@ class Catalogue68 {
       'https://chat.whatsapp.com/DB9snd9pSXf9vVrTN3vhTR?s=cl&p=a&iam=2';
   static const String appDownloadBaseUrl = 'https://bingwadataswift.app/download';
 
-  static const String safaricomLogoAsset = 'assets/logos/safaricom.png';
-  static const String airtelLogoAsset = 'assets/logos/airtel.png';
-  static const String telkomLogoAsset = 'assets/logos/telkom.png';
-  static const String faibaLogoAsset = 'assets/logos/faiba.png';
-
   static const List<OfferModel> initialOffers = [
     OfferModel(id: 's_dc_1', network: 'SAFARICOM', name: '10MB+7SMS', priceLabel: 'KES 8', fixedPriceKes: 8, validity: '24Hrs', category: 'DATA/COMBO'),
     OfferModel(id: 's_dc_2', network: 'SAFARICOM', name: '250MB', priceLabel: 'KES 20', fixedPriceKes: 20, validity: '24Hrs', category: 'DATA/COMBO'),
@@ -2043,7 +2038,6 @@ class HomeTabScreen extends StatelessWidget {
   }
 
   Widget _buildNetworkLogoHeader({
-    required String assetPath,
     required String fallbackText,
     required Color accentColor,
     required IconData fallbackIcon,
@@ -2053,29 +2047,18 @@ class HomeTabScreen extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Expanded(
-            child: Image.asset(
-              assetPath,
-              fit: BoxFit.contain,
-              errorBuilder: (_, __, ___) => Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(fallbackIcon, color: accentColor, size: 22),
-                  const SizedBox(width: 4),
-                  Flexible(
-                    child: Text(
-                      fallbackText,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
-                        fontStyle: FontStyle.italic,
-                        color: accentColor,
-                      ),
-                    ),
-                  ),
-                ],
+          Icon(fallbackIcon, color: accentColor, size: 22),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              fallbackText,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                fontStyle: FontStyle.italic,
+                color: accentColor,
               ),
             ),
           ),
@@ -2088,7 +2071,6 @@ class HomeTabScreen extends StatelessWidget {
 
   Widget _buildNetworkCard({
     required String company,
-    required String assetPath,
     required String fallbackText,
     required Color accentColor,
     required IconData fallbackIcon,
@@ -2114,7 +2096,6 @@ class HomeTabScreen extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             _buildNetworkLogoHeader(
-              assetPath: assetPath,
               fallbackText: fallbackText,
               accentColor: accentColor,
               fallbackIcon: fallbackIcon,
@@ -2288,7 +2269,6 @@ class HomeTabScreen extends StatelessWidget {
               children: [
                 _buildNetworkCard(
                   company: 'SAFARICOM',
-                  assetPath: Catalogue68.safaricomLogoAsset,
                   fallbackText: 'Safaricom',
                   accentColor: const Color(0xFF16A34A),
                   fallbackIcon: Icons.cell_tower,
@@ -2296,7 +2276,6 @@ class HomeTabScreen extends StatelessWidget {
                 ),
                 _buildNetworkCard(
                   company: 'AIRTEL',
-                  assetPath: Catalogue68.airtelLogoAsset,
                   fallbackText: 'airtel',
                   accentColor: const Color(0xFFDC2626),
                   fallbackIcon: Icons.signal_cellular_alt,
@@ -2304,7 +2283,6 @@ class HomeTabScreen extends StatelessWidget {
                 ),
                 _buildNetworkCard(
                   company: 'TELKOM',
-                  assetPath: Catalogue68.telkomLogoAsset,
                   fallbackText: 'Telkom',
                   accentColor: const Color(0xFF0284C7),
                   fallbackIcon: Icons.network_cell,
@@ -2312,7 +2290,6 @@ class HomeTabScreen extends StatelessWidget {
                 ),
                 _buildNetworkCard(
                   company: 'FAIBA',
-                  assetPath: Catalogue68.faibaLogoAsset,
                   fallbackText: 'Faiba',
                   accentColor: const Color(0xFFF59E0B),
                   fallbackIcon: Icons.router,
