@@ -110,26 +110,26 @@ class OfferModel {
         'id': id,
         'network': network,
         'name': name,
-        'priceLabel': priceLabel,
-        'fixedPriceKes': fixedPriceKes,
-        'minKes': minKes,
-        'maxKes': maxKes,
+        'price_label': priceLabel,
+        'fixed_price_kes': fixedPriceKes,
+        'min_kes': minKes,
+        'max_kes': maxKes,
         'validity': validity,
         'category': category,
-        'isVisible': isVisible,
+        'is_visible': isVisible,
       };
 
   factory OfferModel.fromJson(Map<String, dynamic> json) => OfferModel(
         id: json['id'] as String? ?? 'offer_${DateTime.now().millisecondsSinceEpoch}',
         network: json['network'] as String? ?? 'SAFARICOM',
         name: json['name'] as String? ?? 'Offer',
-        priceLabel: json['priceLabel'] as String? ?? 'KES 10',
-        fixedPriceKes: (json['fixedPriceKes'] as num?)?.toInt(),
-        minKes: (json['minKes'] as num?)?.toInt(),
-        maxKes: (json['maxKes'] as num?)?.toInt(),
+        priceLabel: (json['price_label'] ?? json['priceLabel']) as String? ?? 'KES 10',
+        fixedPriceKes: ((json['fixed_price_kes'] ?? json['fixedPriceKes']) as num?)?.toInt(),
+        minKes: ((json['min_kes'] ?? json['minKes']) as num?)?.toInt(),
+        maxKes: ((json['max_kes'] ?? json['maxKes']) as num?)?.toInt(),
         validity: json['validity'] as String? ?? '24Hrs',
         category: json['category'] as String? ?? 'DATA',
-        isVisible: json['isVisible'] as bool? ?? true,
+        isVisible: (json['is_visible'] ?? json['isVisible']) as bool? ?? true,
       );
 }
 
@@ -162,18 +162,18 @@ class AdItem {
         'id': id,
         'title': title,
         'subtitle': subtitle,
-        'iconCodePoint': iconCodePoint,
-        'mediaType': mediaType,
-        'mediaPath': mediaPath,
+        'icon_code_point': iconCodePoint,
+        'media_type': mediaType,
+        'media_path': mediaPath,
       };
 
   factory AdItem.fromJson(Map<String, dynamic> json) => AdItem(
         id: json['id'] as String? ?? 'ad_${DateTime.now().millisecondsSinceEpoch}',
         title: json['title'] as String? ?? 'Promotion',
         subtitle: json['subtitle'] as String? ?? '',
-        iconCodePoint: (json['iconCodePoint'] as num?)?.toInt() ?? 0xe0e8,
-        mediaType: json['mediaType'] as String? ?? 'ad',
-        mediaPath: json['mediaPath'] as String?,
+        iconCodePoint: ((json['icon_code_point'] ?? json['iconCodePoint']) as num?)?.toInt() ?? 0xe0e8,
+        mediaType: (json['media_type'] ?? json['mediaType']) as String? ?? 'ad',
+        mediaPath: (json['media_path'] ?? json['mediaPath']) as String?,
       );
 }
 
@@ -181,7 +181,6 @@ class OrderRecord {
   final String orderId;
   final String network;
   final String bundleName;
-  final String recipientPhone;
   final String paymentPhone;
   final int amountKes;
   final String paymentRef;
@@ -193,7 +192,6 @@ class OrderRecord {
     required this.orderId,
     required this.network,
     required this.bundleName,
-    required this.recipientPhone,
     required this.paymentPhone,
     required this.amountKes,
     required this.paymentRef,
@@ -206,7 +204,6 @@ class OrderRecord {
         'orderId': orderId,
         'network': network,
         'bundleName': bundleName,
-        'recipientPhone': recipientPhone,
         'paymentPhone': paymentPhone,
         'amountKes': amountKes,
         'paymentRef': paymentRef,
@@ -219,7 +216,6 @@ class OrderRecord {
         orderId: json['orderId'] as String? ?? 'ORD-000',
         network: json['network'] as String? ?? 'SAFARICOM',
         bundleName: json['bundleName'] as String? ?? 'Bundle',
-        recipientPhone: json['recipientPhone'] as String? ?? '',
         paymentPhone: json['paymentPhone'] as String? ?? '',
         amountKes: (json['amountKes'] as num?)?.toInt() ?? 0,
         paymentRef: json['paymentRef'] as String? ?? '',
@@ -236,11 +232,16 @@ class Catalogue68 {
   static const String tagline = 'Bundles and airtime that keep you connected.';
   static const String whatsappPhone = '0794363801';
   static const String callPhone = '0794363801';
-  static const String adminPhone = '0794363801';
-  static const String adminAccessCode = '2026';
+  static const String adminEmail = 'Saningo6252@gmail.com';
+  static const String adminAccessCode = '3690';
   static const String whatsappGroupUrl =
       'https://chat.whatsapp.com/DB9snd9pSXf9vVrTN3vhTR?s=cl&p=a&iam=2';
   static const String appDownloadBaseUrl = 'https://bingwadataswift.app/download';
+
+  static const String safaricomLogoAsset = 'assets/logos/safaricom.png';
+  static const String airtelLogoAsset = 'assets/logos/airtel.png';
+  static const String telkomLogoAsset = 'assets/logos/telkom.png';
+  static const String faibaLogoAsset = 'assets/logos/faiba.png';
 
   static const List<OfferModel> initialOffers = [
     OfferModel(id: 's_dc_1', network: 'SAFARICOM', name: '10MB+7SMS', priceLabel: 'KES 8', fixedPriceKes: 8, validity: '24Hrs', category: 'DATA/COMBO'),
@@ -317,7 +318,7 @@ class Catalogue68 {
 class LegalContent {
   static const String privacyPolicy = '''
 1. Information We Collect & Use
-Bingwa Data Swift collects only the details needed to provide bundle ordering, account access, and customer support—such as your name, email address, phone number, selected recipient number, and order history entries.
+Bingwa Data Swift collects only the details needed to provide bundle ordering, account access, and customer support—such as your name, email address, phone number, M-Pesa STK Push payment number, and order history entries.
 
 2. Profile Photos & Device Permissions
 • Photo Gallery: Accessed only when you choose to upload or change your profile picture or admin promo media.
@@ -338,8 +339,8 @@ By accessing or using Bingwa Data Swift, you agree to these Terms and Conditions
 2. Offers, Pricing & Validity
 Bundle options, prices in KES, categories, and validity periods (such as 1Hr, 24Hrs, 7Days, 30Days, or No Expiry) are subject to availability, promotional windows, and carrier terms. The admin may add, hide, edit, or remove offers and promotions as needed.
 
-3. Payments & Recipient Accuracy
-Orders are initiated via M-Pesa STK Push and are subject to payment callback confirmation and network processing. Always verify the recipient phone number, payment phone number, and amount before confirming payment. Incorrect recipient numbers or delayed carrier callbacks may affect delivery.
+3. Payments & M-Pesa STK Push Accuracy
+Orders are initiated via M-Pesa STK Push and are subject to payment callback confirmation and network processing. Always verify your M-Pesa STK Push phone number and amount before confirming payment.
 
 4. Acceptable Use
 You agree not to misuse the app, attempt unauthorized access to admin controls, submit false or fraudulent requests, interfere with app operation, or copy/distribute app assets unlawfully.
@@ -350,7 +351,7 @@ The store may temporarily pause orders during maintenance or when closed. To the
 }
 
 /// Global/Backend sync bridge so admin changes reach every installed copy of the app
-/// once connected to your Supabase/REST endpoint (with safe local fallback).
+/// once connected to your Supabase project.
 class RemoteSyncService {
   static const String supabaseUrl = ''; // e.g. 'https://xxxx.supabase.co'
   static const String supabaseAnonKey = ''; // e.g. 'eyJ...'
@@ -394,6 +395,25 @@ class RemoteSyncService {
       req.headers.set('Content-Type', 'application/json');
       req.headers.set('Prefer', 'resolution=merge-duplicates');
       req.write(jsonEncode(offers.map((o) => o.toJson()).toList()));
+      final res = await req.close();
+      await res.drain<void>();
+      client.close();
+      return res.statusCode >= 200 && res.statusCode < 300;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<bool> deleteOfferFromRemote(String offerId) async {
+    if (!isConfigured) return false;
+    try {
+      final uri = Uri.parse(
+        '${supabaseUrl.trim()}/rest/v1/offers?id=eq.${Uri.encodeComponent(offerId)}',
+      );
+      final client = HttpClient();
+      final req = await client.deleteUrl(uri);
+      req.headers.set('apikey', supabaseAnonKey.trim());
+      req.headers.set('Authorization', 'Bearer ${supabaseAnonKey.trim()}');
       final res = await req.close();
       await res.drain<void>();
       client.close();
@@ -447,23 +467,83 @@ class RemoteSyncService {
       return false;
     }
   }
-}
 
-String _normalizePhone(String input) {
-  final digits = input.replaceAll(RegExp(r'\D'), '');
-  if (digits.startsWith('254') && digits.length == 12) {
-    return '0${digits.substring(3)}';
+  static Future<bool> deleteAdFromRemote(String adId) async {
+    if (!isConfigured) return false;
+    try {
+      final uri = Uri.parse(
+        '${supabaseUrl.trim()}/rest/v1/ads?id=eq.${Uri.encodeComponent(adId)}',
+      );
+      final client = HttpClient();
+      final req = await client.deleteUrl(uri);
+      req.headers.set('apikey', supabaseAnonKey.trim());
+      req.headers.set('Authorization', 'Bearer ${supabaseAnonKey.trim()}');
+      final res = await req.close();
+      await res.drain<void>();
+      client.close();
+      return res.statusCode >= 200 && res.statusCode < 300;
+    } catch (_) {
+      return false;
+    }
   }
-  return digits;
+
+  static Future<bool?> fetchRemoteStoreOpen() async {
+    if (!isConfigured) return null;
+    try {
+      final uri = Uri.parse(
+        '${supabaseUrl.trim()}/rest/v1/store_settings?id=eq.main&select=store_open',
+      );
+      final client = HttpClient();
+      final req = await client.getUrl(uri);
+      req.headers.set('apikey', supabaseAnonKey.trim());
+      req.headers.set('Authorization', 'Bearer ${supabaseAnonKey.trim()}');
+      final res = await req.close();
+      final body = await res.transform(utf8.decoder).join();
+      client.close();
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        final list = jsonDecode(body) as List<dynamic>;
+        if (list.isNotEmpty) {
+          return (list.first as Map<String, dynamic>)['store_open'] as bool?;
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  static Future<bool> syncStoreOpenToRemote(bool open) async {
+    if (!isConfigured) return false;
+    try {
+      final uri = Uri.parse(
+        '${supabaseUrl.trim()}/rest/v1/store_settings?on_conflict=id',
+      );
+      final client = HttpClient();
+      final req = await client.postUrl(uri);
+      req.headers.set('apikey', supabaseAnonKey.trim());
+      req.headers.set('Authorization', 'Bearer ${supabaseAnonKey.trim()}');
+      req.headers.set('Content-Type', 'application/json');
+      req.headers.set('Prefer', 'resolution=merge-duplicates');
+      req.write(jsonEncode([
+        {
+          'id': 'main',
+          'store_open': open,
+          'updated_at': DateTime.now().toIso8601String(),
+        }
+      ]));
+      final res = await req.close();
+      await res.drain<void>();
+      client.close();
+      return res.statusCode >= 200 && res.statusCode < 300;
+    } catch (_) {
+      return false;
+    }
+  }
 }
 
-bool _checkIsAdmin({String? phone, String? email, required String pin}) {
-  final pinMatches = pin.trim() == Catalogue68.adminAccessCode;
-  final phoneMatches =
-      phone != null && _normalizePhone(phone) == _normalizePhone(Catalogue68.adminPhone);
-  final emailStartsWithAdmin =
-      email != null && email.trim().toLowerCase().startsWith(Catalogue68.adminPhone);
-  return pinMatches && (phoneMatches || emailStartsWithAdmin);
+bool _checkIsAdmin({String? email, required String pin}) {
+  final cleanEmail = (email ?? '').trim().toLowerCase();
+  final cleanPin = pin.trim();
+  return cleanEmail == Catalogue68.adminEmail.toLowerCase() &&
+      cleanPin == Catalogue68.adminAccessCode;
 }
 
 Future<String?> pickImageFromGallery(BuildContext context) async {
@@ -573,7 +653,6 @@ class _BingwaDataSwiftAppState extends State<BingwaDataSwiftApp> {
   static const String _kStoreOpenKey = 'bds_store_open_v1';
   static const String _kProfilePhotoKey = 'bds_profile_photo_v1';
 
-  // Saved account credentials for PIN-only login & email OTP/reset
   static const String _kHasAccountKey = 'bds_has_account_v1';
   static const String _kSavedEmailKey = 'bds_saved_email_v1';
   static const String _kSavedPhoneKey = 'bds_saved_phone_v1';
@@ -605,7 +684,7 @@ class _BingwaDataSwiftAppState extends State<BingwaDataSwiftApp> {
     const AdItem(
       id: 'ad_2',
       title: 'Safaricom, Airtel, Telkom & Faiba',
-      subtitle: 'Select your network and confirm your recipient number easily.',
+      subtitle: 'Select your network and confirm your payment number easily.',
       iconCodePoint: 0xe6e7,
       mediaType: 'ad',
     ),
@@ -671,7 +750,6 @@ class _BingwaDataSwiftAppState extends State<BingwaDataSwiftApp> {
           _profilePhotoPath = savedPhoto;
         }
         _isAdmin = _checkIsAdmin(
-          phone: _userPhone,
           email: _userEmail,
           pin: _userPin,
         );
@@ -679,7 +757,9 @@ class _BingwaDataSwiftAppState extends State<BingwaDataSwiftApp> {
 
       final remoteOffers = await RemoteSyncService.fetchRemoteOffers();
       final remoteAds = await RemoteSyncService.fetchRemoteAds();
+      final remoteStoreOpen = await RemoteSyncService.fetchRemoteStoreOpen();
       if (!mounted) return;
+
       if (remoteOffers != null && remoteOffers.isNotEmpty) {
         setState(() => _offers = remoteOffers);
         await _saveOffers(syncRemote: false);
@@ -687,6 +767,10 @@ class _BingwaDataSwiftAppState extends State<BingwaDataSwiftApp> {
       if (remoteAds != null && remoteAds.isNotEmpty) {
         setState(() => _ads = remoteAds);
         await _saveAds(syncRemote: false);
+      }
+      if (remoteStoreOpen != null) {
+        setState(() => _storeOpen = remoteStoreOpen);
+        await _saveStoreOpen(remoteStoreOpen, syncRemote: false);
       }
     } catch (_) {}
   }
@@ -739,9 +823,12 @@ class _BingwaDataSwiftAppState extends State<BingwaDataSwiftApp> {
     );
   }
 
-  Future<void> _saveStoreOpen(bool open) async {
+  Future<void> _saveStoreOpen(bool open, {bool syncRemote = true}) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kStoreOpenKey, open);
+    if (syncRemote) {
+      await RemoteSyncService.syncStoreOpenToRemote(open);
+    }
   }
 
   Future<void> _saveProfilePhoto(String path) async {
@@ -756,18 +843,20 @@ class _BingwaDataSwiftAppState extends State<BingwaDataSwiftApp> {
     String? name,
     String? profilePhotoPath,
   }) {
+    final cleanEmail = email.trim();
+    final cleanPin = pin.trim();
     final resolvedName = (name != null && name.trim().isNotEmpty)
         ? name.trim()
-        : (email.contains('@') ? email.split('@').first : _userName);
+        : (cleanEmail.contains('@') ? cleanEmail.split('@').first : _userName);
     final resolvedPhone = (phone != null && phone.trim().isNotEmpty)
         ? phone.trim()
         : _userPhone;
 
     setState(() {
       _userName = resolvedName;
-      _userEmail = email.trim();
+      _userEmail = cleanEmail;
       _userPhone = resolvedPhone;
-      _userPin = pin.trim();
+      _userPin = cleanPin;
       _hasAccount = true;
       _forceRegisterScreen = false;
       if (profilePhotoPath != null && profilePhotoPath.isNotEmpty) {
@@ -775,49 +864,48 @@ class _BingwaDataSwiftAppState extends State<BingwaDataSwiftApp> {
         _saveProfilePhoto(profilePhotoPath);
       }
       _isAdmin = _checkIsAdmin(
-        phone: resolvedPhone,
-        email: email.trim(),
-        pin: pin.trim(),
+        email: cleanEmail,
+        pin: cleanPin,
       );
       _isAuthenticated = true;
     });
 
     _saveAccountCredentials(
-      email: email.trim(),
-      pin: pin.trim(),
+      email: cleanEmail,
+      pin: cleanPin,
       phone: resolvedPhone,
       name: resolvedName,
     );
   }
 
   void _onPinLoginSuccess(String pin) {
+    final cleanPin = pin.trim();
     setState(() {
-      _userPin = pin.trim();
+      _userPin = cleanPin;
       _forceRegisterScreen = false;
       _isAdmin = _checkIsAdmin(
-        phone: _userPhone,
         email: _userEmail,
-        pin: pin.trim(),
+        pin: cleanPin,
       );
       _isAuthenticated = true;
     });
   }
 
   void _onPinResetSuccess(String newPin) {
+    final cleanPin = newPin.trim();
     setState(() {
-      _userPin = newPin.trim();
+      _userPin = cleanPin;
       _forceRegisterScreen = false;
       _isAdmin = _checkIsAdmin(
-        phone: _userPhone,
         email: _userEmail,
-        pin: newPin.trim(),
+        pin: cleanPin,
       );
       _isAuthenticated = true;
     });
     if (_userEmail.isNotEmpty) {
       _saveAccountCredentials(
         email: _userEmail,
-        pin: newPin.trim(),
+        pin: cleanPin,
         phone: _userPhone,
         name: _userName,
       );
@@ -893,18 +981,18 @@ class _BingwaDataSwiftAppState extends State<BingwaDataSwiftApp> {
                   orders: _orders,
                   onLogout: _onLogout,
                   onUpdatePin: (newPin) {
+                    final cleanPin = newPin.trim();
                     setState(() {
-                      _userPin = newPin;
+                      _userPin = cleanPin;
                       _isAdmin = _checkIsAdmin(
-                        phone: _userPhone,
                         email: _userEmail,
-                        pin: newPin,
+                        pin: cleanPin,
                       );
                     });
                     if (_userEmail.isNotEmpty) {
                       _saveAccountCredentials(
                         email: _userEmail,
-                        pin: newPin,
+                        pin: cleanPin,
                         phone: _userPhone,
                         name: _userName,
                       );
@@ -931,7 +1019,8 @@ class _BingwaDataSwiftAppState extends State<BingwaDataSwiftApp> {
                   },
                   onDeleteOffer: (id) {
                     setState(() => _offers.removeWhere((o) => o.id == id));
-                    _saveOffers();
+                    _saveOffers(syncRemote: false);
+                    RemoteSyncService.deleteOfferFromRemote(id);
                   },
                   onResetDefaultOffers: () {
                     setState(() {
@@ -944,8 +1033,10 @@ class _BingwaDataSwiftAppState extends State<BingwaDataSwiftApp> {
                     _saveAds();
                   },
                   onRemoveAd: (index) {
+                    final removedId = _ads[index].id;
                     setState(() => _ads.removeAt(index));
-                    _saveAds();
+                    _saveAds(syncRemote: false);
+                    RemoteSyncService.deleteAdFromRemote(removedId);
                   },
                   onRecordStkAttempt: (order) {
                     setState(() => _orders.insert(0, order));
@@ -1613,7 +1704,6 @@ class _MainShellScreenState extends State<MainShellScreen> {
                     context,
                     MaterialPageRoute(
                       builder: (_) => AdminDashboardScreen(
-                        adminPhone: widget.userPhone,
                         adminEmail: widget.userEmail,
                         storeOpen: widget.storeOpen,
                         offers: widget.offers,
@@ -1819,12 +1909,56 @@ class HomeTabScreen extends StatelessWidget {
     );
   }
 
+  Widget _buildNetworkLogoHeader({
+    required String assetPath,
+    required String fallbackText,
+    required Color accentColor,
+    required IconData fallbackIcon,
+  }) {
+    return SizedBox(
+      height: 44,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Expanded(
+            child: Image.asset(
+              assetPath,
+              fit: BoxFit.contain,
+              errorBuilder: (_, __, ___) => Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(fallbackIcon, color: accentColor, size: 22),
+                  const SizedBox(width: 4),
+                  Flexible(
+                    child: Text(
+                      fallbackText,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        fontStyle: FontStyle.italic,
+                        color: accentColor,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 4),
+          Icon(Icons.signal_cellular_alt, color: accentColor, size: 16),
+        ],
+      ),
+    );
+  }
+
   Widget _buildNetworkCard({
     required String company,
-    required String label,
+    required String assetPath,
+    required String fallbackText,
     required Color accentColor,
-    required Color badgeBg,
-    required IconData icon,
+    required IconData fallbackIcon,
     required VoidCallback onTap,
   }) {
     return GestureDetector(
@@ -1846,27 +1980,11 @@ class HomeTabScreen extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(icon, color: accentColor, size: 22),
-                const SizedBox(width: 4),
-                Flexible(
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w800,
-                      fontStyle: FontStyle.italic,
-                      color: accentColor,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 4),
-                Icon(Icons.signal_cellular_alt, color: accentColor, size: 15),
-              ],
+            _buildNetworkLogoHeader(
+              assetPath: assetPath,
+              fallbackText: fallbackText,
+              accentColor: accentColor,
+              fallbackIcon: fallbackIcon,
             ),
             Column(
               children: [
@@ -2037,34 +2155,34 @@ class HomeTabScreen extends StatelessWidget {
               children: [
                 _buildNetworkCard(
                   company: 'SAFARICOM',
-                  label: 'Safaricom',
+                  assetPath: Catalogue68.safaricomLogoAsset,
+                  fallbackText: 'Safaricom',
                   accentColor: const Color(0xFF16A34A),
-                  badgeBg: BDSColors.lightGreenBadgeBg,
-                  icon: Icons.cell_tower,
+                  fallbackIcon: Icons.cell_tower,
                   onTap: () => onNetworkTap('SAFARICOM'),
                 ),
                 _buildNetworkCard(
                   company: 'AIRTEL',
-                  label: 'airtel',
+                  assetPath: Catalogue68.airtelLogoAsset,
+                  fallbackText: 'airtel',
                   accentColor: const Color(0xFFDC2626),
-                  badgeBg: const Color(0xFFFDECEC),
-                  icon: Icons.signal_cellular_alt,
+                  fallbackIcon: Icons.signal_cellular_alt,
                   onTap: () => onNetworkTap('AIRTEL'),
                 ),
                 _buildNetworkCard(
                   company: 'TELKOM',
-                  label: 'Telkom',
+                  assetPath: Catalogue68.telkomLogoAsset,
+                  fallbackText: 'Telkom',
                   accentColor: const Color(0xFF0284C7),
-                  badgeBg: const Color(0xFFE0F2FE),
-                  icon: Icons.network_cell,
+                  fallbackIcon: Icons.network_cell,
                   onTap: () => onNetworkTap('TELKOM'),
                 ),
                 _buildNetworkCard(
                   company: 'FAIBA',
-                  label: 'Faiba',
+                  assetPath: Catalogue68.faibaLogoAsset,
+                  fallbackText: 'Faiba',
                   accentColor: const Color(0xFFF59E0B),
-                  badgeBg: BDSColors.amberBg,
-                  icon: Icons.router,
+                  fallbackIcon: Icons.router,
                   onTap: () => onNetworkTap('FAIBA'),
                 ),
               ],
@@ -2493,7 +2611,6 @@ class _BuyConfirmScreenState extends State<BuyConfirmScreen> {
           orderId: orderId,
           network: widget.offer.network,
           bundleName: widget.offer.name,
-          recipientPhone: paymentPhone,
           paymentPhone: paymentPhone,
           amountKes: amount,
           paymentRef: checkoutId,
@@ -2514,7 +2631,6 @@ class _BuyConfirmScreenState extends State<BuyConfirmScreen> {
           orderId: orderId,
           network: widget.offer.network,
           bundleName: widget.offer.name,
-          recipientPhone: paymentPhone,
           paymentPhone: paymentPhone,
           amountKes: amount,
           paymentRef: 'STK Request Failed',
@@ -2983,7 +3099,7 @@ class HistoryTabScreen extends StatelessWidget {
                       const SizedBox(height: 4),
                       Text('Network: ${o.network} | Bundle: ${o.bundleName}'),
                       const SizedBox(height: 4),
-                      Text('Recipient: ${o.recipientPhone} | Payment Phone: ${o.paymentPhone}'),
+                      Text('STK Push Phone: ${o.paymentPhone}'),
                       const SizedBox(height: 4),
                       Text('Amount: KES ${o.amountKes} | Date: ${o.dateLabel}'),
                       const SizedBox(height: 4),
@@ -3213,7 +3329,7 @@ class SupportTabScreen extends StatelessWidget {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      'Recipient Number Check',
+                                      'STK Push Number Check',
                                       style: TextStyle(
                                         fontWeight: FontWeight.w700,
                                         fontSize: 14,
@@ -3222,7 +3338,7 @@ class SupportTabScreen extends StatelessWidget {
                                     ),
                                     SizedBox(height: 3),
                                     Text(
-                                      'Confirm the recipient phone number carefully before approving your M-Pesa STK Push prompt.',
+                                      'Confirm your M-Pesa STK Push phone number carefully before approving your PIN prompt.',
                                       style: TextStyle(color: Color(0xFF374151), fontSize: 12.5),
                                     ),
                                   ],
@@ -3447,7 +3563,6 @@ class AccountScreen extends StatelessWidget {
 }
 
 class AdminDashboardScreen extends StatefulWidget {
-  final String adminPhone;
   final String adminEmail;
   final bool storeOpen;
   final List<OfferModel> offers;
@@ -3463,7 +3578,6 @@ class AdminDashboardScreen extends StatefulWidget {
 
   const AdminDashboardScreen({
     super.key,
-    required this.adminPhone,
     required this.adminEmail,
     required this.storeOpen,
     required this.offers,
@@ -3533,7 +3647,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     _validityCtrl.clear();
     setState(() {});
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('New offer added and saved.')),
+      const SnackBar(content: Text('New offer added and synced.')),
     );
   }
 
@@ -3613,7 +3727,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 Navigator.pop(ctx);
                 setState(() {});
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Offer updated and saved.')),
+                  const SnackBar(content: Text('Offer updated and synced.')),
                 );
               },
               child: const Text('Save Changes'),
@@ -3651,7 +3765,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   @override
   Widget build(BuildContext context) {
     final authorized = _checkIsAdmin(
-      phone: widget.adminPhone,
       email: widget.adminEmail,
       pin: Catalogue68.adminAccessCode,
     );
