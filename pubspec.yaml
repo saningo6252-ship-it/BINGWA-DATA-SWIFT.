@@ -10,6 +10,7 @@ dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.8
+  supabase_flutter: ^2.8.0
   flutter_secure_storage: ^9.2.2
   shared_preferences: ^2.3.3
   url_launcher: ^6.3.0
@@ -23,3 +24,6 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/app_icon.png
+    - assets/logos/
