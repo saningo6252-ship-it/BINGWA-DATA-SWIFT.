@@ -353,8 +353,9 @@ The store may temporarily pause orders during maintenance or when closed. To the
 /// Global/Backend sync bridge so admin changes reach every installed copy of the app
 /// once connected to your Supabase project.
 class RemoteSyncService {
-  static const String supabaseUrl = ''; // e.g. 'https://xxxx.supabase.co'
-  static const String supabaseAnonKey = ''; // e.g. 'eyJ...'
+  static const String supabaseUrl = 'https://fjorzgowptrafchouthd.supabase.co';
+  static const String supabaseAnonKey =
+      'sb_publishable_cNCrYuy6BDDTYC2j4gYSYw_P6cnWVVK';
 
   static bool get isConfigured =>
       supabaseUrl.trim().isNotEmpty && supabaseAnonKey.trim().isNotEmpty;
