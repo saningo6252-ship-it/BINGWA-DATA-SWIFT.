@@ -5,11 +5,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'mpesa_service.dart';
 
-void main() {
+const String kSupabaseUrl = 'https://fjorzgowpirsfohozlhd.supabase.co';
+const String kSupabasePublishableKey =
+    'sb_publishable_cNCrYuy6BDDTYC2j4gYSYw_P6cnWVVK';
+
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
@@ -17,8 +22,16 @@ void main() {
       statusBarIconBrightness: Brightness.dark,
     ),
   );
+
+  await Supabase.initialize(
+    url: kSupabaseUrl,
+    anonKey: kSupabasePublishableKey,
+  );
+
   runApp(const BingwaDataSwiftApp());
 }
+
+SupabaseClient get supabase => Supabase.instance.client;
 
 class BDSColors {
   static const Color pureWhite = Color(0xFFFFFFFF);
@@ -145,7 +158,7 @@ class AdItem {
     required this.id,
     required this.title,
     required this.subtitle,
-    this.iconCodePoint = 0xe0e8, // Icons.bolt
+    this.iconCodePoint = 0xe0e8,
     this.mediaType = 'ad',
     this.mediaPath,
   });
@@ -350,12 +363,9 @@ The store may temporarily pause orders during maintenance or when closed. To the
 ''';
 }
 
-/// Global/Backend sync bridge so admin changes reach every installed copy of the app
-/// once connected to your Supabase project.
 class RemoteSyncService {
-  static const String supabaseUrl = 'https://fjorzgowptrafchouthd.supabase.co';
-  static const String supabaseAnonKey =
-      'sb_publishable_cNCrYuy6BDDTYC2j4gYSYw_P6cnWVVK';
+  static const String supabaseUrl = kSupabaseUrl;
+  static const String supabaseAnonKey = kSupabasePublishableKey;
 
   static bool get isConfigured =>
       supabaseUrl.trim().isNotEmpty && supabaseAnonKey.trim().isNotEmpty;
@@ -554,9 +564,7 @@ Future<String?> pickImageFromGallery(BuildContext context) async {
       source: ImageSource.gallery,
       imageQuality: 85,
     );
-    if (picked == null) {
-      return null;
-    }
+    if (picked == null) return null;
     return picked.path;
   } catch (_) {
     if (context.mounted) {
@@ -571,12 +579,8 @@ Future<String?> pickImageFromGallery(BuildContext context) async {
 Future<String?> pickVideoFromGallery(BuildContext context) async {
   try {
     final picker = ImagePicker();
-    final XFile? picked = await picker.pickVideo(
-      source: ImageSource.gallery,
-    );
-    if (picked == null) {
-      return null;
-    }
+    final XFile? picked = await picker.pickVideo(source: ImageSource.gallery);
+    if (picked == null) return null;
     return picked.path;
   } catch (_) {
     if (context.mounted) {
@@ -913,7 +917,11 @@ class _BingwaDataSwiftAppState extends State<BingwaDataSwiftApp> {
     }
   }
 
-  void _onLogout() {
+  Future<void> _onLogout() async {
+    try {
+      await supabase.auth.signOut();
+    } catch (_) {}
+    if (!mounted) return;
     setState(() {
       _isAuthenticated = false;
       _forceRegisterScreen = false;
@@ -1159,6 +1167,8 @@ class _RegistrationPageState extends State<RegistrationPage> {
   final _pinCtrl = TextEditingController();
   final _otpCtrl = TextEditingController();
 
+  bool _sendingOtp = false;
+  bool _verifying = false;
   bool _otpSent = false;
   String? _selectedPhotoPath;
   String _error = '';
@@ -1190,24 +1200,49 @@ class _RegistrationPageState extends State<RegistrationPage> {
     }
   }
 
-  void _sendEmailOtpOrLink() {
+  Future<void> _sendEmailOtpOrLink() async {
+    if (_sendingOtp) return;
     final email = _emailCtrl.text.trim();
     if (!email.contains('@') || !email.contains('.')) {
       setState(() => _error = 'Please enter a valid email address first.');
       return;
     }
+
     setState(() {
-      _otpSent = true;
+      _sendingOtp = true;
       _error = '';
     });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Confirmation link & OTP code sent to $email.'),
-      ),
-    );
+
+    try {
+      await supabase.auth.signInWithOtp(
+        email: email,
+        shouldCreateUser: true,
+      );
+      if (!mounted) return;
+      setState(() {
+        _sendingOtp = false;
+        _otpSent = true;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('OTP sent to $email. Check inbox or spam.')),
+      );
+    } on AuthException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _sendingOtp = false;
+        _error = e.message;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _sendingOtp = false;
+        _error = 'Failed to send OTP: $e';
+      });
+    }
   }
 
-  void _registerAccount() {
+  Future<void> _registerAccount() async {
+    if (_verifying) return;
     final email = _emailCtrl.text.trim();
     final pin = _pinCtrl.text.trim();
     final otp = _otpCtrl.text.trim();
@@ -1229,14 +1264,39 @@ class _RegistrationPageState extends State<RegistrationPage> {
       return;
     }
 
-    setState(() => _error = '');
-    widget.onRegistered(
-      email: email,
-      pin: pin,
-      phone: _phoneCtrl.text.trim(),
-      name: _nameCtrl.text.trim(),
-      profilePhotoPath: _selectedPhotoPath,
-    );
+    setState(() {
+      _verifying = true;
+      _error = '';
+    });
+
+    try {
+      await supabase.auth.verifyOTP(
+        email: email,
+        token: otp,
+        type: OtpType.email,
+      );
+      if (!mounted) return;
+      setState(() => _verifying = false);
+      widget.onRegistered(
+        email: email,
+        pin: pin,
+        phone: _phoneCtrl.text.trim(),
+        name: _nameCtrl.text.trim(),
+        profilePhotoPath: _selectedPhotoPath,
+      );
+    } on AuthException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _verifying = false;
+        _error = e.message;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _verifying = false;
+        _error = 'OTP verification failed: $e';
+      });
+    }
   }
 
   @override
@@ -1315,8 +1375,12 @@ class _RegistrationPageState extends State<RegistrationPage> {
                       ),
                       const SizedBox(width: 8),
                       ElevatedButton(
-                        onPressed: _sendEmailOtpOrLink,
-                        child: Text(_otpSent ? 'Resend OTP' : 'Send OTP'),
+                        onPressed: _sendingOtp ? null : _sendEmailOtpOrLink,
+                        child: Text(
+                          _sendingOtp
+                              ? 'Sending...'
+                              : (_otpSent ? 'Resend OTP' : 'Send OTP'),
+                        ),
                       ),
                     ],
                   ),
@@ -1367,8 +1431,10 @@ class _RegistrationPageState extends State<RegistrationPage> {
                     width: double.infinity,
                     height: 48,
                     child: ElevatedButton(
-                      onPressed: _registerAccount,
-                      child: const Text('Register & Confirm Email'),
+                      onPressed: _verifying ? null : _registerAccount,
+                      child: Text(
+                        _verifying ? 'Verifying...' : 'Register & Confirm Email',
+                      ),
                     ),
                   ),
                   if (widget.onGoToLogin != null) ...[
@@ -1417,6 +1483,8 @@ class _PinOnlyLoginPageState extends State<PinOnlyLoginPage> {
   final _newPinCtrl = TextEditingController();
 
   bool _forgotPinMode = false;
+  bool _sendingReset = false;
+  bool _verifyingReset = false;
   bool _resetLinkSent = false;
   String _error = '';
 
@@ -1445,25 +1513,53 @@ class _PinOnlyLoginPageState extends State<PinOnlyLoginPage> {
     widget.onLoginSuccess(enteredPin);
   }
 
-  void _sendForgotPinEmail() {
+  Future<void> _sendForgotPinEmail() async {
+    if (_sendingReset) return;
+    final targetEmail = widget.savedEmail.trim();
+    if (targetEmail.isEmpty || !targetEmail.contains('@')) {
+      setState(() => _error = 'No registered email found. Register an account first.');
+      return;
+    }
+
     setState(() {
-      _resetLinkSent = true;
+      _sendingReset = true;
       _error = '';
     });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          widget.savedEmail.isNotEmpty
-              ? 'New PIN reset link & OTP sent to ${widget.savedEmail}.'
-              : 'New PIN reset link & OTP sent to your registered email.',
-        ),
-      ),
-    );
+
+    try {
+      await supabase.auth.signInWithOtp(
+        email: targetEmail,
+        shouldCreateUser: false,
+      );
+      if (!mounted) return;
+      setState(() {
+        _sendingReset = false;
+        _resetLinkSent = true;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('OTP sent to $targetEmail.')),
+      );
+    } on AuthException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _sendingReset = false;
+        _error = e.message;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _sendingReset = false;
+        _error = 'Failed to send reset OTP: $e';
+      });
+    }
   }
 
-  void _confirmNewPin() {
+  Future<void> _confirmNewPin() async {
+    if (_verifyingReset) return;
     final otp = _resetOtpCtrl.text.trim();
     final newPin = _newPinCtrl.text.trim();
+    final targetEmail = widget.savedEmail.trim();
+
     if (!_resetLinkSent) {
       setState(() => _error = 'Send the reset link/OTP to your email first.');
       return;
@@ -1476,8 +1572,34 @@ class _PinOnlyLoginPageState extends State<PinOnlyLoginPage> {
       setState(() => _error = 'Enter a new 4-digit PIN.');
       return;
     }
-    setState(() => _error = '');
-    widget.onResetPinSuccess(newPin);
+
+    setState(() {
+      _verifyingReset = true;
+      _error = '';
+    });
+
+    try {
+      await supabase.auth.verifyOTP(
+        email: targetEmail,
+        token: otp,
+        type: OtpType.email,
+      );
+      if (!mounted) return;
+      setState(() => _verifyingReset = false);
+      widget.onResetPinSuccess(newPin);
+    } on AuthException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _verifyingReset = false;
+        _error = e.message;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _verifyingReset = false;
+        _error = 'Failed to verify OTP: $e';
+      });
+    }
   }
 
   @override
@@ -1532,12 +1654,14 @@ class _PinOnlyLoginPageState extends State<PinOnlyLoginPage> {
                             ),
                           ] else ...[
                             ElevatedButton.icon(
-                              onPressed: _sendForgotPinEmail,
+                              onPressed: _sendingReset ? null : _sendForgotPinEmail,
                               icon: const Icon(Icons.mark_email_read),
                               label: Text(
-                                _resetLinkSent
-                                    ? 'Resend Email Link & OTP'
-                                    : 'Send New PIN Link & OTP to Email',
+                                _sendingReset
+                                    ? 'Sending...'
+                                    : (_resetLinkSent
+                                        ? 'Resend Email Link & OTP'
+                                        : 'Send New PIN Link & OTP to Email'),
                               ),
                             ),
                             const SizedBox(height: 12),
@@ -1575,8 +1699,16 @@ class _PinOnlyLoginPageState extends State<PinOnlyLoginPage> {
                           SizedBox(
                             height: 48,
                             child: ElevatedButton(
-                              onPressed: _forgotPinMode ? _confirmNewPin : _loginWithPinOnly,
-                              child: Text(_forgotPinMode ? 'Set New PIN & Login' : 'Login'),
+                              onPressed: _forgotPinMode
+                                  ? (_verifyingReset ? null : _confirmNewPin)
+                                  : _loginWithPinOnly,
+                              child: Text(
+                                _forgotPinMode
+                                    ? (_verifyingReset
+                                        ? 'Verifying...'
+                                        : 'Set New PIN & Login')
+                                    : 'Login',
+                              ),
                             ),
                           ),
                           const SizedBox(height: 8),
